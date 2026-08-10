@@ -2241,10 +2241,22 @@ namespace RazorEnhanced
             World.Player.WalkScriptRequest = 1;
             int timeout = 0;
             bool result = false;
-            if (run)
-                result = Client.Instance.RequestRun(dir);
-            else
-                result = Client.Instance.RequestWalk(dir);
+            try
+            {
+                if (run)
+                    result = Client.Instance.RequestRun(dir);
+                else
+                    result = Client.Instance.RequestWalk(dir);
+            }
+            finally
+            {
+                // Release the movement-key guard used by HotKey.KeyDown. Both client
+                // implementations deliver the request synchronously (OSI replays the
+                // movement keystroke through SendKeys/SendMessage, CUO calls straight
+                // into the client), so by the time we get here the keystroke this flag
+                // is meant to swallow has already been handled.
+                World.Player.WalkScriptRequest = 0;
+            }
 
             Logger.Debug("Move {0} Sent", direction);
 

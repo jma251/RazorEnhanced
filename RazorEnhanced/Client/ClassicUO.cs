@@ -251,7 +251,11 @@ namespace Assistant
         private void OnPlayerPositionChanged(int x, int y, int z)
         {
             World.Player.Position = new Point3D(x, y, z);
-            World.Player.WalkScriptRequest = 2;
+            // Only advance a pending script request. Arming the flag on every position
+            // change latched it on permanently after the first step, which made
+            // HotKey.KeyDown discard every hotkey bound to a movement key.
+            if (World.Player.WalkScriptRequest == 1)
+                World.Player.WalkScriptRequest = 2;
         }
 
         internal static void RunTheUI()
