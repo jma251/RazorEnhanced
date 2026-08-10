@@ -1,0 +1,258 @@
+name: build-latest
+
+# Builds RazorEnhanced on a Windows runner and publishes the result as a
+# single downloadable zip attached to a GitHub release tagged "latest".
+# The previous "latest" release and its tag are deleted first, so there is
+# always exactly one, and its download link never changes.
+#
+# Runs automatically on every push to release/1.0, and can be started by
+# hand from the Actions tab (Run workflow) on any branch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/1.0
+    paths-ignore:
+      - '.github/**'
+      - '.gitattributes'
+      - '.gitignore'
+      - '.vscode/**'
+      - '*.md'
+      - 'docs/**'
+      - 'dokuwiki/**'
+      - 'LICENSE.txt'
+      - 'UOS_Documentation.html'
+
+# Needed to create/delete the release and its tag.
+permissions:
+  contents: write
+
+env:
+  SOLUTION_FILE_PATH: Razor.sln
+  # "Any CPU" at solution level maps Razor -> x86 and Crypt/Loader -> Win32,
+  # and every project writes into bin\Win32\<Configuration>.
+  BUILD_PLATFORM: Any CPU
+  BUILD_CONFIGURATION: Debug
+  OUTPUT_DIR: bin\Win32\Debug
+  RELEASE_TAG: latest
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # Harmless today (this repo has no submodules), but means the
+          # workflow keeps working if any are added later.
+          submodules: recursive
+
+      - name: Read version from AssemblyInfo.cs
+        id: get_version
+        shell: pwsh
+        run: |
+          $path = 'Razor/Properties/AssemblyInfo.cs'
+          $line = Get-Content -Path $path |
+                  Where-Object { $_ -notmatch '^\s*//' } |
+                  Select-String -Pattern 'AssemblyVersion\("([\d\.\w]+)"\)' |
+                  Select-Object -First 1
+          if (-not $line) {
+            Write-Error "Could not find AssemblyVersion in $path"
+            exit 1
+          }
+          $version = $line.Matches.Groups[1].Value
+          Write-Host "Version: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Add NuGet to PATH
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: nuget restore $env:SOLUTION_FILE_PATH
+
+      - name: Build the solution
+        shell: pwsh
+        run: |
+          msbuild /m `
+            /p:Configuration="$env:BUILD_CONFIGURATION" `
+            /p:Platform="$env:BUILD_PLATFORM" `
+            /v:minimal `
+            $env:SOLUTION_FILE_PATH
+
+      # The exe on its own does not run. It needs the two native DLLs built
+      # from the C++ projects, the prebuilt native DLLs and data folders that
+      # the Razor post-build step copies out of BuildSupplementalFiles, and
+      # the IronPython standard library that the same step copies out of the
+      # restored NuGet packages. If any of that is missing the zip would look
+      # fine and then fail on the user's machine, so check before packaging.
+      - name: Verify the build output is complete
+        shell: pwsh
+        run: |
+          $out = $env:OUTPUT_DIR
+          if (-not (Test-Path $out)) {
+            Write-Error "Build output directory '$out' does not exist."
+            exit 1
+          }
+
+          # Missing any of these means the zip is not runnable.
+          $requiredFiles = @(
+            'RazorEnhanced.exe',            # the application itself
+            'RazorEnhanced.exe.config',     # generated from Razor/app.config
+            'Ultima.dll',                   # UltimaSDK project
+            'FastColoredTextBox.dll',       # FastColoredTextBox project
+            'Crypt.dll',                    # native, built from Crypt.vcxproj
+            'Loader.dll',                   # native, built from Loader.vcxproj
+            'uo.dll',                       # native, from BuildSupplementalFiles
+            'zlib.dll',                     # native, from BuildSupplementalFiles
+            'UOMod.dll',                    # native, from BuildSupplementalFiles
+            'IronPython.dll',               # Python engine
+            'IronPython.Modules.dll',
+            'Microsoft.Scripting.dll',
+            'Microsoft.Dynamic.dll',
+            'NLog.dll',
+            'NLog.config'
+          )
+
+          # Missing any of these means scripts / data files will not load.
+          $requiredDirs = @(
+            'Lib',                          # IronPython standard library
+            'Config',
+            'Definitions',
+            'Language',
+            'Scripts'
+          )
+
+          # Nice to have. Absence is reported but does not fail the build,
+          # because exactly where these land depends on the NuGet targets.
+          $optionalFiles = @(
+            'WebView2Loader.dll',
+            'grpc_csharp_ext.x86.dll'
+          )
+
+          $missing = @()
+
+          foreach ($f in $requiredFiles) {
+            $p = Join-Path $out $f
+            if (Test-Path $p -PathType Leaf) {
+              $kb = [math]::Round((Get-Item $p).Length / 1KB, 1)
+              Write-Host ("  OK       {0}  ({1} KB)" -f $f, $kb)
+            } else {
+              Write-Host ("  MISSING  {0}" -f $f)
+              $missing += $f
+            }
+          }
+
+          foreach ($d in $requiredDirs) {
+            $p = Join-Path $out $d
+            if (Test-Path $p -PathType Container) {
+              $n = (Get-ChildItem $p -Recurse -File -ErrorAction SilentlyContinue).Count
+              if ($n -gt 0) {
+                Write-Host ("  OK       {0}\  ({1} files)" -f $d, $n)
+              } else {
+                Write-Host ("  EMPTY    {0}\" -f $d)
+                $missing += "$d\ (present but empty)"
+              }
+            } else {
+              Write-Host ("  MISSING  {0}\" -f $d)
+              $missing += "$d\"
+            }
+          }
+
+          foreach ($f in $optionalFiles) {
+            $hit = Get-ChildItem $out -Recurse -Filter $f -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+            if ($hit) {
+              $rel = $hit.FullName.Substring((Resolve-Path $out).Path.Length + 1)
+              Write-Host ("  OK       {0}  (optional)" -f $rel)
+            } else {
+              Write-Warning ("{0} not found (optional)" -f $f)
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            Write-Error ("Build output is incomplete. Missing: " + ($missing -join ', '))
+            exit 1
+          }
+
+          $total = (Get-ChildItem $out -Recurse -File).Count
+          Write-Host "Build output verified: $total files in $out"
+
+      - name: Create the zip
+        shell: pwsh
+        run: |
+          $zip = "RazorEnhanced-latest.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          # Zip the *contents* of the output folder, so the exe sits at the
+          # top level of the zip rather than inside a nested directory.
+          Compress-Archive -Path (Join-Path $env:OUTPUT_DIR '*') -DestinationPath $zip -CompressionLevel Optimal
+          $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+          Write-Host "Created $zip ($mb MB)"
+
+      - name: Upload the zip as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RazorEnhanced-latest
+          path: RazorEnhanced-latest.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      # Deleting and recreating is deliberate: it is the only way to make an
+      # existing tag point at a new commit, and it keeps exactly one "latest"
+      # release rather than accumulating one per build.
+      - name: Replace the "latest" release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:RELEASE_TAG
+
+          # Remove the previous release and its tag, if there is one, so that
+          # "latest" always points at this build. A missing release is fine.
+          gh release delete $tag --yes --cleanup-tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No existing '$tag' release to remove (this is normal on the first run)."
+          } else {
+            Write-Host "Removed the previous '$tag' release."
+          }
+          $global:LASTEXITCODE = 0
+
+          $version   = "${{ steps.get_version.outputs.version }}"
+          $sha       = "${{ github.sha }}"
+          $short     = $sha.Substring(0, 7)
+          $built     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
+          $commitUrl = "${{ github.server_url }}/${{ github.repository }}/commit/$sha"
+
+          $notes = @(
+            "Automatic build of branch **${{ github.ref_name }}**."
+            ""
+            "| | |"
+            "|---|---|"
+            "| Version | $version |"
+            "| Commit | [$short]($commitUrl) |"
+            "| Built | $built |"
+            "| Configuration | $env:BUILD_CONFIGURATION ($env:BUILD_PLATFORM) |"
+            ""
+            "Download **RazorEnhanced-latest.zip** below and unzip it into a folder"
+            "of its own, then run **RazorEnhanced.exe** from that folder. All the"
+            "files in the zip need to stay together."
+            ""
+            "This release is replaced by every new build, so this link always points"
+            "at the most recent one."
+          ) -join "`n"
+
+          gh release create $tag `
+            "RazorEnhanced-latest.zip" `
+            --title "Latest build ($version)" `
+            --notes $notes `
+            --target $sha
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to create the '$tag' release."
+            exit 1
+          }
+          Write-Host "Published '$tag' release for version $version."
