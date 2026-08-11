@@ -20,7 +20,7 @@ WelcomeForm::showAtStart=Show this when Razor starts
 WelcomeForm::quit=&Quit
 WelcomeForm::okay=&Okay
 
-MainForm::Text=Enhanced Razor {0}
+MainForm::Text=Enhanced Razor {0} Holiday Edition
 MainForm::generalTab=General
 MainForm::btnMap=Map UO
 MainForm::systray=System Tray
