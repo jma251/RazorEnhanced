@@ -19,6 +19,7 @@ on:
       - '.gitignore'
       - '.vscode/**'
       - '*.md'
+      - 'changelog.html'
       - 'docs/**'
       - 'dokuwiki/**'
       - 'LICENSE.txt'
@@ -60,6 +61,9 @@ jobs:
           # Harmless today (this repo has no submodules), but means the
           # workflow keeps working if any are added later.
           submodules: recursive
+          # Needed to list commits since the previous build, and to push the
+          # updated changelog back.
+          fetch-depth: 0
 
       - name: Work out this build's version and stamp it in
         id: get_version
@@ -228,6 +232,62 @@ jobs:
       # startup and offers the update if <version> is higher than the running
       # exe's. It is attached to the same release as the zip, so its URL is
       # stable and no separate hosting is needed.
+      # Prepend an entry to changelog.html for the commits since the last
+      # build, then push it back. The window inside Razor reads this file, so
+      # what ships in the zip and what people see in the app stay in step.
+      # The commit is marked [skip ci] and changelog.html is in paths-ignore,
+      # so this cannot retrigger the workflow.
+      - name: Update the changelog
+        shell: pwsh
+        run: |
+          $version = "${{ steps.get_version.outputs.version }}"
+          $file    = "changelog.html"
+          $text    = Get-Content $file -Raw
+
+          # The previous build's commit is recorded in the file itself.
+          $m = [regex]::Match($text, '<!-- last-build: ([0-9a-f]{7,40}) -->')
+          if ($m.Success) {
+            $since = $m.Groups[1].Value
+            $range = "$since..HEAD"
+          } else {
+            Write-Host "No last-build marker; using the last 20 commits."
+            $range = "HEAD~20..HEAD"
+          }
+
+          $subjects = @(git log $range --no-merges --format=%s 2>$null |
+                        Where-Object { $_ -and $_ -notmatch '^\[skip ci\]' })
+
+          if ($subjects.Count -eq 0) {
+            Write-Host "No new commits since the last build - changelog unchanged."
+          } else {
+            Write-Host "$($subjects.Count) commit(s) since $range"
+            $date  = (Get-Date).ToString("d MMMM yyyy")
+            $entry = @()
+            $entry += '<div class="entry">'
+            $entry += "<h2>$version <span class=""date"">&ndash; $date</span></h2>"
+            $entry += '<ul>'
+            foreach ($s in $subjects) {
+              $safe = $s -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;'
+              $entry += "  <li>$safe</li>"
+            }
+            $entry += '</ul>'
+            $entry += '</div>'
+            $entryText = ($entry -join "`n")
+
+            $text = $text -replace '<!-- ENTRIES -->', ("<!-- ENTRIES -->`n`n" + $entryText)
+            $text = [regex]::Replace($text,
+                      '<!-- last-build: [0-9a-f]{7,40} -->',
+                      "<!-- last-build: $env:GITHUB_SHA -->")
+            Set-Content -Path $file -Value $text -NoNewline -Encoding UTF8
+
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add $file
+            git commit -m "[skip ci] Changelog for $version"
+            git push origin HEAD:${{ github.ref_name }}
+            Write-Host "Changelog updated and pushed."
+          }
+
       - name: Write the auto-updater manifest
         shell: pwsh
         run: |
