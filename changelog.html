@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Razor Enhanced Holiday Edition - Changelog</title>
+<style type="text/css">
+body   { font-family: Segoe UI, Tahoma, sans-serif; font-size: 13px;
+         color: #222; background: #fff; margin: 12px; }
+h1     { font-size: 17px; margin: 0 0 2px 0; }
+.sub   { color: #666; font-size: 12px; margin: 0 0 14px 0; }
+.entry { border-top: 1px solid #ddd; padding: 10px 0 2px 0; }
+h2     { font-size: 14px; margin: 0 0 6px 0; }
+.date  { color: #666; font-weight: normal; font-size: 12px; }
+ul     { margin: 4px 0 8px 0; padding-left: 20px; }
+li     { margin: 3px 0; }
+.note  { color: #666; font-size: 12px; margin: 2px 0 8px 0; }
+</style>
+</head>
+<body>
+
+<h1>Razor Enhanced &ndash; Holiday Edition</h1>
+<p class="sub">A personal fork. Newest changes first.</p>
+
+<!-- ENTRIES -->
+
+<div class="entry">
+<h2>1.0.0.1402 <span class="date">&ndash; 10 September 2026</span></h2>
+<ul>
+  <li><b>Self-updating.</b> Razor now checks this fork for new builds on
+      startup and offers to install them, instead of needing a zip
+      downloaded and copied over by hand. The updater was always built in;
+      it was pointed at the upstream project, so it could never see a build
+      from here.</li>
+  <li><b>Version numbers now change per build.</b> Every build was reporting
+      1.0.0.14, which meant an updater could never tell one from the next.
+      Builds are now numbered 1.0.0.1402, 1.0.0.1403 and so on &ndash; "14"
+      is the upstream version this fork is based on, the last two digits are
+      the build.</li>
+  <li><b>This changelog.</b> Generated on every build and shown in Razor's
+      ChangeLog window.</li>
+</ul>
+<p class="note">Upgrading to this build has to be done by hand one last
+time &ndash; an older install still checks the upstream project for
+updates. Every build after this one updates itself.</p>
+</div>
+
+<div class="entry">
+<h2>Sound filters <span class="date">&ndash; 10 September 2026</span></h2>
+<ul>
+  <li><b>Six new filters:</b> Satyr, Bear, Walrus, Wolf, Snow Leopard and
+      Charlie. Each can be switched on in the Filters tab, so these no
+      longer need silencing by editing <i>sound.mul</i> after every client
+      patch.</li>
+  <li><b>Bear and Wolf cannot be split by type.</b> Black, grizzly and polar
+      bears share one set of sounds, as do dire, grey, timber and white
+      wolves. The filter names say so.</li>
+  <li><b>Dog, Horse and Sheep were only filtering two of their five sounds.</b>
+      When these moved from code into a settings file in 2021 the ranges were
+      copied across as just their first and last entries, so the three middle
+      sounds of each were never silenced. Cat had the same fault and was
+      fixed in 2022; the other three were missed.</li>
+  <li><b>Bull, Chicken and Deer were off by one</b> and had been since 2019.
+      Each missed one of its own sounds and silenced one belonging to
+      something else &ndash; "Deer Sounds" was muting a dragon attack and a
+      drinking sound.</li>
+  <li>Every sound ID was checked against the client's own sound table. No ID
+      is now claimed by two filters.</li>
+</ul>
+</div>
+
+<div class="entry">
+<h2>Holiday Edition <span class="date">&ndash; 11 August 2026</span></h2>
+<ul>
+  <li>The title bar now reads <b>Enhanced Razor 1.0.0.x Holiday Edition</b>,
+      matching the launcher and the client.</li>
+</ul>
+</div>
+
+<div class="entry">
+<h2>Movement key hotkeys fixed <span class="date">&ndash; 10 August 2026</span></h2>
+<ul>
+  <li><b>Hotkeys bound to End, Page Down, Page Up, Home and the arrow keys
+      did nothing.</b> Razor ignores those keys while it is walking your
+      character for a script, so its own keystrokes cannot trigger your
+      hotkeys &ndash; but the switch that turns this on was never turned back
+      off. It latched on at your first step and stayed on for the rest of the
+      session, throwing those hotkeys away before they were ever looked up.
+      Delete and the F-keys were unaffected, which is why only the movement
+      keys appeared broken.</li>
+</ul>
+</div>
+
+<div class="entry">
+<h2>Automatic builds <span class="date">&ndash; 10 August 2026</span></h2>
+<ul>
+  <li>Every change pushed to this fork is now built automatically and
+      published as a downloadable zip, with the same download link each
+      time.</li>
+  <li>The build checks that everything Razor needs to actually run is in the
+      zip before publishing, rather than shipping one that fails on
+      launch.</li>
+</ul>
+</div>
+
+<!-- last-build: 4d4bf5978124db78a1b6e95f4ba2d8541e992dce -->
+</body>
+</html>

@@ -19,6 +19,7 @@ on:
       - '.gitignore'
       - '.vscode/**'
       - '*.md'
+      - 'changelog.html'
       - 'docs/**'
       - 'dokuwiki/**'
       - 'LICENSE.txt'
@@ -36,6 +37,18 @@ env:
   BUILD_CONFIGURATION: Debug
   OUTPUT_DIR: bin\Win32\Debug
   RELEASE_TAG: latest
+  # Version is 1.0.0.<PATCH><build>, e.g. 1.0.0.1402 = upstream patch 14,
+  # our build 02. .NET's Version type is numbers only, so "Holiday Edition"
+  # lives in the title bar and the release name, not here.
+  #
+  # UPSTREAM_PATCH tracks the patch level this fork is based on - bump it by
+  # hand if upstream moves to 1.0.0.15, and reset BUILD_OFFSET so the build
+  # counter starts again at 01.
+  #
+  # BUILD_OFFSET is subtracted from the workflow run number to get the build
+  # counter. Run 5 - 3 = build 02 -> 1.0.0.1402.
+  UPSTREAM_PATCH: 14
+  BUILD_OFFSET: 3
 
 jobs:
   build:
@@ -48,23 +61,44 @@ jobs:
           # Harmless today (this repo has no submodules), but means the
           # workflow keeps working if any are added later.
           submodules: recursive
+          # Needed to list commits since the previous build, and to push the
+          # updated changelog back.
+          fetch-depth: 0
 
-      - name: Read version from AssemblyInfo.cs
+      - name: Work out this build's version and stamp it in
         id: get_version
         shell: pwsh
         run: |
+          $patch  = [int]$env:UPSTREAM_PATCH
+          $build  = [int]$env:GITHUB_RUN_NUMBER - [int]$env:BUILD_OFFSET
+
+          if ($build -lt 1) {
+            Write-Error "Build counter came out as $build. BUILD_OFFSET is too high."
+            exit 1
+          }
+          if ($build -gt 99) {
+            Write-Error ("Build counter reached {0}, which would overflow into patch {1} and collide with a future upstream version. Bump UPSTREAM_PATCH and reset BUILD_OFFSET to (current run number - 1)." -f $build, ($patch + 1))
+            exit 1
+          }
+
+          $version = "1.0.0." + ($patch.ToString() + $build.ToString("D2"))
+          Write-Host "Version for this build: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+          # Stamp it into AssemblyInfo.cs. This is a working-copy edit only -
+          # it is never committed, so the file in git keeps its base version.
           $path = 'Razor/Properties/AssemblyInfo.cs'
-          $line = Get-Content -Path $path |
-                  Where-Object { $_ -notmatch '^\s*//' } |
-                  Select-String -Pattern 'AssemblyVersion\("([\d\.\w]+)"\)' |
-                  Select-Object -First 1
-          if (-not $line) {
+          $text = Get-Content -Path $path -Raw
+          $new  = [regex]::Replace(
+            $text,
+            '(?m)^(\[assembly:\s*AssemblyVersion\(")([^"]+)("\)\])',
+            "`${1}$version`${3}")
+          if ($new -eq $text) {
             Write-Error "Could not find AssemblyVersion in $path"
             exit 1
           }
-          $version = $line.Matches.Groups[1].Value
-          Write-Host "Version: $version"
-          "version=$version" >> $env:GITHUB_OUTPUT
+          Set-Content -Path $path -Value $new -NoNewline
+          Write-Host (Get-Content $path | Select-String 'AssemblyVersion')
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -194,6 +228,85 @@ jobs:
           $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
           Write-Host "Created $zip ($mb MB)"
 
+      # AutoUpdater.NET, which RazorEnhanced already ships, reads this file on
+      # startup and offers the update if <version> is higher than the running
+      # exe's. It is attached to the same release as the zip, so its URL is
+      # stable and no separate hosting is needed.
+      # Prepend an entry to changelog.html for the commits since the last
+      # build, then push it back. The window inside Razor reads this file, so
+      # what ships in the zip and what people see in the app stay in step.
+      # The commit is marked [skip ci] and changelog.html is in paths-ignore,
+      # so this cannot retrigger the workflow.
+      - name: Update the changelog
+        shell: pwsh
+        run: |
+          $version = "${{ steps.get_version.outputs.version }}"
+          $file    = "changelog.html"
+          $text    = Get-Content $file -Raw
+
+          # The previous build's commit is recorded in the file itself.
+          $m = [regex]::Match($text, '<!-- last-build: ([0-9a-f]{7,40}) -->')
+          if ($m.Success) {
+            $since = $m.Groups[1].Value
+            $range = "$since..HEAD"
+          } else {
+            Write-Host "No last-build marker; using the last 20 commits."
+            $range = "HEAD~20..HEAD"
+          }
+
+          $subjects = @(git log $range --no-merges --format=%s 2>$null |
+                        Where-Object { $_ -and $_ -notmatch '^\[skip ci\]' })
+
+          if ($subjects.Count -eq 0) {
+            Write-Host "No new commits since the last build - changelog unchanged."
+          } else {
+            Write-Host "$($subjects.Count) commit(s) since $range"
+            $date  = (Get-Date).ToString("d MMMM yyyy")
+            $entry = @()
+            $entry += '<div class="entry">'
+            $entry += "<h2>$version <span class=""date"">&ndash; $date</span></h2>"
+            $entry += '<ul>'
+            foreach ($s in $subjects) {
+              $safe = $s -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;'
+              $entry += "  <li>$safe</li>"
+            }
+            $entry += '</ul>'
+            $entry += '</div>'
+            $entryText = ($entry -join "`n")
+
+            $text = $text -replace '<!-- ENTRIES -->', ("<!-- ENTRIES -->`n`n" + $entryText)
+            $text = [regex]::Replace($text,
+                      '<!-- last-build: [0-9a-f]{7,40} -->',
+                      "<!-- last-build: $env:GITHUB_SHA -->")
+            Set-Content -Path $file -Value $text -NoNewline -Encoding UTF8
+
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add $file
+            git commit -m "[skip ci] Changelog for $version"
+            git push origin HEAD:${{ github.ref_name }}
+            Write-Host "Changelog updated and pushed."
+          }
+
+      - name: Write the auto-updater manifest
+        shell: pwsh
+        run: |
+          $version = "${{ steps.get_version.outputs.version }}"
+          $base    = "${{ github.server_url }}/${{ github.repository }}/releases/download/$env:RELEASE_TAG"
+
+          $xml = @()
+          $xml += '<?xml version="1.0" encoding="UTF-8"?>'
+          $xml += '<item>'
+          $xml += "  <version>$version</version>"
+          $xml += "  <url>$base/RazorEnhanced-latest.zip</url>"
+          $xml += "  <changelog>${{ github.server_url }}/${{ github.repository }}/releases/tag/$env:RELEASE_TAG</changelog>"
+          $xml += '  <mandatory>false</mandatory>'
+          $xml += '</item>'
+
+          Set-Content -Path "RazorEnhancedAutoUpdater.xml" -Value $xml -Encoding UTF8
+          Write-Host "--- RazorEnhancedAutoUpdater.xml ---"
+          Get-Content "RazorEnhancedAutoUpdater.xml" | ForEach-Object { Write-Host $_ }
+
       - name: Upload the zip as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -248,6 +361,7 @@ jobs:
 
           gh release create $tag `
             "RazorEnhanced-latest.zip" `
+            "RazorEnhancedAutoUpdater.xml" `
             --title "Latest build ($version)" `
             --notes $notes `
             --target $sha
