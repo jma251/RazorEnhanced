@@ -10019,6 +10019,19 @@ namespace Assistant
             tabs_IndexChanged(this, null); // load first tab
 
             m_Tip.Active = true;
+
+            // Check for a new build on every start. The other three calls to
+            // AutoUpdater.Start are behind buttons, or inside the launcher
+            // window, so nothing checked automatically when Razor was started
+            // any other way - through ClassicUO, for instance.
+            try
+            {
+                AutoUpdater.Start(Client.UpdateManifestUrl);
+            }
+            catch
+            {
+                // An update check must never stop Razor from starting.
+            }
         }
 
         internal void LoadSettings()
@@ -10530,7 +10543,7 @@ namespace Assistant
             try
             {
                 // Leave stuff thats already set up
-                AutoUpdater.Start("https://github.com/jma251/RazorEnhanced-Holiday-Edition/releases/download/latest/RazorEnhancedAutoUpdater.xml");
+                AutoUpdater.Start(Client.UpdateManifestUrl);
             }
             catch
             {

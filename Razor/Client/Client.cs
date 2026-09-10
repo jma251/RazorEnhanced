@@ -53,6 +53,13 @@ namespace Assistant
     }
     public abstract class Client
     {
+        /// <summary>
+        /// The auto-update manifest for this fork. Kept in one place so a
+        /// repository rename cannot leave some call sites behind.
+        /// </summary>
+        public const string UpdateManifestUrl =
+            "https://github.com/jma251/RazorEnhanced-Holiday-Edition/releases/download/latest/RazorEnhancedAutoUpdater.xml";
+
         public static Client Instance;
         public static bool IsOSI;
 
