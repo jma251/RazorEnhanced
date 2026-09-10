@@ -759,10 +759,14 @@ namespace Assistant
                     DialogResult dialogResult;
 
                     dialogResult = RazorEnhanced.UI.RE_MessageBox.Show("New Version Available",
-                            $@"There is new version {args.CurrentVersion} available.\r\nYou are using version {args.InstalledVersion}.\r\nDo you want to update the application now?",
+                            $"There is a new version {args.CurrentVersion} available.\r\nYou are using version {args.InstalledVersion}.\r\nDo you want to update now?",
                             ok: "Yes", no: "No", cancel: null, backColor: null);
 
-                    if (dialogResult.Equals(DialogResult.OK))
+                    // RE_MessageBox returns Yes when the confirm button is
+                    // labelled "Yes", and OK otherwise. This prompt labels it
+                    // "Yes", so testing only for OK meant the download never
+                    // ran and the else branch snoozed the update for a week.
+                    if (dialogResult == DialogResult.Yes || dialogResult == DialogResult.OK)
                     {
                         try
                         {
@@ -800,7 +804,7 @@ namespace Assistant
                         catch (Exception exception)
                         {
                             RazorEnhanced.UI.RE_MessageBox.Show("Update Exception Occurred",
-                                    $@"{exception.Message}\r\nType: {exception.GetType().ToString()}",
+                                    $"{exception.Message}\r\nType: {exception.GetType()}",
                                     ok: "Ok", no: null, cancel: null, backColor: null);
                         }
                     }
