@@ -9494,7 +9494,7 @@ namespace Assistant
             this.advertisementLink.Name = "advertisementLink";
             this.advertisementLink.Size = new System.Drawing.Size(176, 22);
             this.advertisementLink.TabIndex = 12;
-            this.advertisementLink.Text = "UO Eventine";
+            this.advertisementLink.Text = "UOAlive";
             this.advertisementLink.UseVisualStyleBackColor = true;
             this.advertisementLink.Click += new System.EventHandler(this.advertisement_Click);
             // 
@@ -9504,7 +9504,7 @@ namespace Assistant
             this.advertisementDiscordLink.Name = "advertisementDiscordLink";
             this.advertisementDiscordLink.Size = new System.Drawing.Size(176, 22);
             this.advertisementDiscordLink.TabIndex = 12;
-            this.advertisementDiscordLink.Text = "UO Eventine Discord";
+            this.advertisementDiscordLink.Text = "UOAlive Discord";
             this.advertisementDiscordLink.UseVisualStyleBackColor = true;
             this.advertisementDiscordLink.Click += new System.EventHandler(this.advertisementDiscord_Click);
             // 
@@ -10508,7 +10508,7 @@ namespace Assistant
 
         private void advertisement_Click(object sender, EventArgs e)
         {
-            ProcessStartInfo p = new("https://www.uoeventine.com/");
+            ProcessStartInfo p = new("https://uoalive.com/");
             try
             {
                 Process.Start(p);
@@ -10518,7 +10518,7 @@ namespace Assistant
 
         private void advertisementDiscord_Click(object sender, EventArgs e)
         {
-            ProcessStartInfo p = new("https://discord.com/invite/vF9TXZW");
+            ProcessStartInfo p = new("https://discord.gg/qscnHRK");
             try
             {
                 Process.Start(p);
