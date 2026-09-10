@@ -41,7 +41,7 @@ namespace RazorEnhanced.UI
             this.webBrowser1.Name = "webBrowser1";
             this.webBrowser1.Size = new System.Drawing.Size(414, 468);
             this.webBrowser1.TabIndex = 0;
-            this.webBrowser1.Url = new System.Uri("https://raw.githubusercontent.com/jma251/RazorEnhanced/release/1.0/changelog.html", System.UriKind.Absolute);
+            this.webBrowser1.Url = new System.Uri("https://raw.githubusercontent.com/jma251/RazorEnhanced-Holiday-Edition/release/1.0/changelog.html", System.UriKind.Absolute);
             // 
             // EnhancedChangeLog
             // 

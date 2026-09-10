@@ -10530,7 +10530,7 @@ namespace Assistant
             try
             {
                 // Leave stuff thats already set up
-                AutoUpdater.Start("https://github.com/jma251/RazorEnhanced/releases/download/latest/RazorEnhancedAutoUpdater.xml");
+                AutoUpdater.Start("https://github.com/jma251/RazorEnhanced-Holiday-Edition/releases/download/latest/RazorEnhancedAutoUpdater.xml");
             }
             catch
             {
