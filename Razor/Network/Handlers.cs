@@ -2570,6 +2570,8 @@ namespace Assistant
             string name = p.ReadStringSafe(30);
             string ext_str = p.ReadUnicodeStringLE();
 
+            CheckCastInterrupted(serial, num);
+
             if (IsSpellMessage(num))
                 type = MessageType.Spell;
 
@@ -2602,6 +2604,8 @@ namespace Assistant
             string affix = p.ReadStringSafe();
             string args = p.ReadUnicodeStringSafe();
 
+            CheckCastInterrupted(serial, num);
+
             if (IsSpellMessage(num))
                 type = MessageType.Spell;
 
@@ -2611,6 +2615,42 @@ namespace Assistant
             else // 0 == append, 2 = system
                 text = String.Format("{0}{1}", Language.ClilocFormat(num, args), affix);
             HandleSpeech(p, phea, serial, body, type, hue, font, Language.CliLocName.ToUpper(), name, text);
+        }
+
+        /// <summary>
+        /// The messages the server sends when a cast ends before the spell
+        /// goes off. Seeing any of these means the cast bar is gone, so
+        /// Player.IsCasting has to stop reporting true right away instead of
+        /// waiting out the spell's cast time.
+        /// </summary>
+        private static readonly HashSet<int> m_CastInterruptedMessages = new()
+        {
+            500641,  // Your concentration is disturbed, thus ruining thy spell.
+            502625,  // Insufficient mana for this spell.
+            502630,  // More reagents are needed for this spell.
+            500946,  // You cannot cast this in town!
+            500015,  // You do not have that spell!
+            502643,  // You can not cast a spell while frozen.
+            502644,  // You have not yet recovered from casting a spell.
+            1061091, // You cannot cast that spell in this form.
+            1072060, // You cannot cast a spell while calmed.
+        };
+
+        /// <summary>
+        /// Clears the casting flag when one of the interrupt messages above
+        /// arrives. Only messages aimed at the player count; the same text
+        /// about somebody else's spell must not cancel ours.
+        /// </summary>
+        private static void CheckCastInterrupted(Serial serial, int num)
+        {
+            if (World.Player == null)
+                return;
+
+            if (serial != World.Player.Serial && serial != Serial.MinusOne)
+                return;
+
+            if (m_CastInterruptedMessages.Contains(num))
+                World.Player.EndCast();
         }
 
         private static bool IsSpellMessage(int num)

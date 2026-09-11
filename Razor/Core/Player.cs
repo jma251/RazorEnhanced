@@ -625,6 +625,11 @@ namespace Assistant
                 Position = new Point3D(x, y, Position.Z);
             }
             Direction = dir;
+
+            // Record the pace every move request states, including the ones
+            // that only turn the player on the spot - the next real step will
+            // carry the same pace.
+            m_LastMoveWasRunning = (dir & Direction.running) == Direction.running;
         }
         internal SyncPrimitives.Semaphore WalkSemaphore = new(5);
 
@@ -733,7 +738,89 @@ namespace Assistant
             }
         }
 
+        private int m_CastingSpell;
+        private DateTime m_CastingStarted = DateTime.MinValue;
+        private int m_CastingTimeout;
+
+        /// <summary>
+        /// Called from Spell.Cast, which every cast path funnels through -
+        /// the spellbook, a client macro, the 0xBF cast command and Razor's
+        /// own Spells.Cast all end up there.
+        /// </summary>
+        internal void BeginCast(int spellId, int timeoutMs)
+        {
+            // Abilities with no cast time are finished the moment they are
+            // used, so there is nothing to report as "casting".
+            if (timeoutMs <= 0)
+            {
+                EndCast();
+                return;
+            }
+
+            m_CastingSpell = spellId;
+            m_CastingTimeout = timeoutMs;
+            m_CastingStarted = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Called when the server says the cast ended early - fizzled,
+        /// interrupted, out of mana or reagents, and so on.
+        /// </summary>
+        internal void EndCast()
+        {
+            m_CastingSpell = 0;
+            m_CastingTimeout = 0;
+            m_CastingStarted = DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// True between the start of a cast and either the server ending it
+        /// early or the spell's own cast time running out.
+        /// </summary>
+        internal bool IsCasting
+        {
+            get
+            {
+                if (m_CastingSpell == 0 || m_CastingStarted == DateTime.MinValue)
+                    return false;
+
+                if ((DateTime.UtcNow - m_CastingStarted).TotalMilliseconds >= m_CastingTimeout)
+                {
+                    // The cast time elapsed with no interrupt, so the spell
+                    // went off. Clear here rather than wait for something to
+                    // tell us, because nothing will.
+                    EndCast();
+                    return false;
+                }
+
+                return true;
+            }
+        }
+
+        /// <summary>Spell currently being cast, or 0 when not casting.</summary>
+        internal int CastingSpell
+        {
+            get { return IsCasting ? m_CastingSpell : 0; }
+        }
+
+        /// <summary>
+        /// Milliseconds left on the current cast, 0 when not casting.
+        /// </summary>
+        internal double CastingTimeLeft
+        {
+            get
+            {
+                if (!IsCasting)
+                    return 0;
+
+                double left = m_CastingTimeout - (DateTime.UtcNow - m_CastingStarted).TotalMilliseconds;
+                return left > 0 ? left : 0;
+            }
+        }
+
         private DateTime m_LastMovement = DateTime.MinValue;
+        private DateTime m_PreviousMovement = DateTime.MinValue;
+        private bool m_LastMoveWasRunning;
 
         /// <summary>
         /// When the player last actually changed tile. Every path that moves
@@ -744,6 +831,33 @@ namespace Assistant
         internal DateTime LastMovement
         {
             get { return m_LastMovement; }
+        }
+
+        /// <summary>
+        /// Whether the most recent movement carried the running bit. The
+        /// direction byte of every move request has 0x80 set when the player
+        /// is running, so this is the client's own statement of pace rather
+        /// than something inferred from timings.
+        /// </summary>
+        internal bool LastMoveWasRunning
+        {
+            get { return m_LastMoveWasRunning; }
+        }
+
+        /// <summary>
+        /// Milliseconds between the last two tile changes, or -1 when the
+        /// player has not moved twice yet. Useful as a sanity check against
+        /// the pace the running bit claims.
+        /// </summary>
+        internal double LastStepDelay
+        {
+            get
+            {
+                if (m_PreviousMovement == DateTime.MinValue || m_LastMovement == DateTime.MinValue)
+                    return -1;
+
+                return (m_LastMovement - m_PreviousMovement).TotalMilliseconds;
+            }
         }
 
         public override Point3D Position
@@ -757,7 +871,10 @@ namespace Assistant
                 // Only count a real change of tile. The setter is also hit by
                 // resyncs and calibration, which are not movement.
                 if (base.Position != value)
+                {
+                    m_PreviousMovement = m_LastMovement;
                     m_LastMovement = DateTime.UtcNow;
+                }
 
                 base.Position = value;
                 // IsCalibrated is always false on CUO and true on OSI client

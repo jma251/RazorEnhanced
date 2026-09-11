@@ -1,3 +1,4 @@
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -92,6 +93,23 @@ namespace Assistant
             return ToID(Circle, Number);
         }
 
+        /// <summary>
+        /// How long this spell takes to cast, in milliseconds, as listed in
+        /// Config/spells.json. Zero for the warrior abilities that take
+        /// effect at once and so have no cast time at all.
+        /// </summary>
+        internal int Timeout
+        {
+            get
+            {
+                int timeout;
+                if (m_TimeoutByID.TryGetValue(GetID(), out timeout))
+                    return timeout;
+
+                return 0;
+            }
+        }
+
         internal int GetHue(int def)
         {
             if (RazorEnhanced.Settings.General.ReadBool("ForceSpellHue"))
@@ -163,6 +181,7 @@ namespace Assistant
                 World.Player.LastSpell = GetID();
                 LastCastTime = DateTime.Now;
                 Targeting.SpellTargetID = 0;
+                World.Player.BeginCast(GetID(), Timeout);
             }
         }
 
@@ -170,6 +189,44 @@ namespace Assistant
 
         private static readonly Dictionary<string, Spell> m_SpellsByPower;
         private static readonly Dictionary<int, Spell> m_SpellsByID;
+        private static readonly Dictionary<int, int> m_TimeoutByID = new();
+
+        /// <summary>
+        /// Reads the per-spell cast times out of Config/spells.json. That file
+        /// carries a "timeout" for every spell that has a cast bar; the same
+        /// numbers drive Player.IsCasting. If the file is missing or malformed
+        /// the spells still work, they just report no cast time.
+        /// </summary>
+        private static void LoadTimeouts()
+        {
+            try
+            {
+                string path = RazorEnhanced.Config.ConfigPath("spells.json");
+                if (!File.Exists(path))
+                    return;
+
+                JObject root = JObject.Parse(File.ReadAllText(path));
+                JToken list = root.SelectToken("spells.spell");
+                if (list == null)
+                    return;
+
+                foreach (JToken entry in list)
+                {
+                    string id = (string)entry["id"];
+                    string timeout = (string)entry["timeout"];
+                    if (id == null || timeout == null)
+                        continue;
+
+                    int spellId, ms;
+                    if (Int32.TryParse(id, out spellId) && Int32.TryParse(timeout, out ms))
+                        m_TimeoutByID[spellId] = ms;
+                }
+            }
+            catch
+            {
+                // A bad spells.json must not stop spell casting from working.
+            }
+        }
 
         static Spell()
         {
@@ -216,6 +273,8 @@ namespace Assistant
                 {
                 }
             }
+
+            LoadTimeouts();
         }
 
 

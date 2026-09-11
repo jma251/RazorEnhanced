@@ -12,8 +12,24 @@ namespace RazorEnhanced
     /// </summary>
     public class Player
     {
-        // ClassicUO's Constants.PLAYER_WALKING_DELAY
-        private const int WALKING_WINDOW_MS = 150;
+        // The server paces movement, and one step does not take the same
+        // time in every case:
+        //     on foot, walking    400ms
+        //     on foot, running    200ms
+        //     mounted, walking    200ms
+        //     mounted, running    100ms
+        // so a single fixed window cannot answer "is the player moving" for
+        // all four. StepDuration below picks the one that matches how the
+        // player is actually travelling.
+        private const int STEP_WALK_FOOT_MS = 400;
+        private const int STEP_RUN_FOOT_MS = 200;
+        private const int STEP_WALK_MOUNT_MS = 200;
+        private const int STEP_RUN_MOUNT_MS = 100;
+
+        // Steps arrive a little late under latency, and a step that is merely
+        // late must not read as a stop. Half a step of slack absorbs that
+        // without letting a genuine stop linger for long.
+        private const int STEP_SLACK_MS = 200;
 
         // Stats
         /// <summary>
@@ -3113,9 +3129,112 @@ namespace RazorEnhanced
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// True while the player is moving.
-        /// Mirrors the client's own test: true if the player changed tile
-        /// within the last 150ms, which is ClassicUO's PLAYER_WALKING_DELAY.
+        /// True while the player is casting a spell.
+        /// Goes true when the cast starts and false again when the server
+        /// interrupts it - fizzle, insufficient mana, missing reagents and the
+        /// rest - or when the spell's own cast time from Config/spells.json
+        /// runs out, whichever happens first.
+        /// Warrior abilities that take effect instantly never report true,
+        /// because they have no cast time.
+        /// </summary>
+        public static bool IsCasting
+        {
+            get
+            {
+                if (World.Player == null)
+                    return false;
+                return World.Player.IsCasting;
+            }
+        }
+
+        /// <summary>
+        /// The spell currently being cast, as a spell ID, or 0 when the player
+        /// is not casting. Same numbering as Player.LastSpell.
+        /// </summary>
+        public static int CastingSpell
+        {
+            get
+            {
+                if (World.Player == null)
+                    return 0;
+                return World.Player.CastingSpell;
+            }
+        }
+
+        /// <summary>
+        /// Milliseconds left before the current cast completes, or 0 when the
+        /// player is not casting. Use it to wait out a cast without sleeping
+        /// for a fixed time that may be too short or too long.
+        /// </summary>
+        public static double CastingTimeLeft
+        {
+            get
+            {
+                if (World.Player == null)
+                    return 0;
+                return World.Player.CastingTimeLeft;
+            }
+        }
+
+        /// <summary>
+        /// How long a single step currently takes, in milliseconds: 400 walking
+        /// on foot, 200 running on foot, 200 walking mounted, 100 running
+        /// mounted. Read it when you need to pace a script to the character's
+        /// actual speed instead of guessing a sleep.
+        /// </summary>
+        public static int StepDuration
+        {
+            get
+            {
+                if (World.Player == null)
+                    return STEP_WALK_FOOT_MS;
+
+                bool mounted = World.Player.GetItemOnLayer(Assistant.Layer.Mount) != null;
+                bool running = World.Player.LastMoveWasRunning;
+
+                if (mounted)
+                    return running ? STEP_RUN_MOUNT_MS : STEP_WALK_MOUNT_MS;
+
+                return running ? STEP_RUN_FOOT_MS : STEP_WALK_FOOT_MS;
+            }
+        }
+
+        /// <summary>
+        /// True while the player is moving, at either pace, on foot or mounted.
+        /// True if the player changed tile within one step of now, judged
+        /// against StepDuration so that a walking character on foot - whose
+        /// steps are 400ms apart - does not read as stopped between steps.
+        /// </summary>
+        public static bool IsMoving
+        {
+            get
+            {
+                if (World.Player == null)
+                    return false;
+
+                return MillisecondsSinceLastMove < StepDuration + STEP_SLACK_MS;
+            }
+        }
+
+        /// <summary>
+        /// True while the player is moving at running pace. The direction byte
+        /// of each move request carries the running bit, so this reflects what
+        /// the client actually asked for rather than a guess from timings.
+        /// </summary>
+        public static bool IsRunning
+        {
+            get
+            {
+                if (World.Player == null)
+                    return false;
+
+                return IsMoving && World.Player.LastMoveWasRunning;
+            }
+        }
+
+        /// <summary>
+        /// True while the player is moving at walking pace.
+        /// False when standing still and false when running.
         /// </summary>
         public static bool IsWalking
         {
@@ -3123,7 +3242,8 @@ namespace RazorEnhanced
             {
                 if (World.Player == null)
                     return false;
-                return (DateTime.UtcNow - World.Player.LastMovement).TotalMilliseconds < WALKING_WINDOW_MS;
+
+                return IsMoving && !World.Player.LastMoveWasRunning;
             }
         }
 
@@ -3138,6 +3258,21 @@ namespace RazorEnhanced
                 if (World.Player == null)
                     return double.MaxValue;
                 return (DateTime.UtcNow - World.Player.LastMovement).TotalMilliseconds;
+            }
+        }
+
+        /// <summary>
+        /// Milliseconds between the last two tile changes, or -1 if the player
+        /// has not moved twice yet. This is the measured step time, so it
+        /// includes lag; StepDuration is the clean expected value.
+        /// </summary>
+        public static double LastStepDelay
+        {
+            get
+            {
+                if (World.Player == null)
+                    return -1;
+                return World.Player.LastStepDelay;
             }
         }
 
