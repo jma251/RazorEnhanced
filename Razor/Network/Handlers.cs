@@ -2390,6 +2390,17 @@ namespace Assistant
             {
                 Spell s = Spell.Get(trimmed_text);
                 bool replaced = false;
+
+                // Power words spoken by the player start a cast just as much
+                // as a spellbook click does, and typing them by hand never
+                // goes near Spell.Cast. Catch that here so Player.IsCasting
+                // is right however the cast was started. Only our own speech
+                // counts - somebody else reciting the same words is theirs,
+                // not ours.
+                PlayerData speaker = World.Player;
+                if (s != null && speaker != null && ser == speaker.Serial)
+                    speaker.BeginCast(s.GetID(), s.Timeout);
+
                 if (s != null)
                 {
                     System.Text.StringBuilder sb = new(RazorEnhanced.Settings.General.ReadString("SpellFormat"));
