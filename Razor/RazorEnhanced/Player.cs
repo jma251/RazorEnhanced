@@ -12,6 +12,9 @@ namespace RazorEnhanced
     /// </summary>
     public class Player
     {
+        // ClassicUO's Constants.PLAYER_WALKING_DELAY
+        private const int WALKING_WINDOW_MS = 150;
+
         // Stats
         /// <summary>
         /// Current hit points.
@@ -1858,8 +1861,19 @@ namespace RazorEnhanced
                 Scripts.SendMessageScriptError("Script Error: GetStatStatus: " + statname + " not valid");
                 return -1;
             }
-            Scripts.SendMessageScriptError("Script Error: GetStatStatus: not implemented");
-            return -1;
+            // The three locks are parsed out of every status packet in
+            // Network/Handlers.cs; this just never got wired to them.
+            LockType lockType;
+            switch (stat)
+            {
+                case StatName.Strength:     lockType = World.Player.StrLock; break;
+                case StatName.Dexterity:    lockType = World.Player.DexLock; break;
+                case StatName.Intelligence: lockType = World.Player.IntLock; break;
+                default:
+                    Scripts.SendMessageScriptError("Script Error: GetStatStatus: " + statname + " not valid");
+                    return -1;
+            }
+            return (int)lockType;
         }
 
 
@@ -3091,5 +3105,98 @@ namespace RazorEnhanced
             }
             return 0;  // Non esiste
         }
+
+        // ------------------------------------------------------------------
+        //  State RazorEnhanced already tracked but never exposed to scripts.
+        //  Every one of these is backed by a field that is populated today;
+        //  see Network/Handlers.cs and Core/Player.cs.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// True while the player is moving.
+        /// Mirrors the client's own test: true if the player changed tile
+        /// within the last 150ms, which is ClassicUO's PLAYER_WALKING_DELAY.
+        /// </summary>
+        public static bool IsWalking
+        {
+            get
+            {
+                if (World.Player == null)
+                    return false;
+                return (DateTime.UtcNow - World.Player.LastMovement).TotalMilliseconds < WALKING_WINDOW_MS;
+            }
+        }
+
+        /// <summary>
+        /// Milliseconds since the player last changed tile.
+        /// Large number if the player has not moved since login.
+        /// </summary>
+        public static double MillisecondsSinceLastMove
+        {
+            get
+            {
+                if (World.Player == null)
+                    return double.MaxValue;
+                return (DateTime.UtcNow - World.Player.LastMovement).TotalMilliseconds;
+            }
+        }
+
+        /// <summary>Tithing points, as used by Chivalry.</summary>
+        public static int TithingPoints { get { return World.Player.Tithe; } }
+
+        /// <summary>The player's race. 1: Human - 2: Elf - 3: Gargoyle.</summary>
+        public static int Race { get { return World.Player.Race; } }
+
+        /// <summary>Maximum physical resistance the player can reach.</summary>
+        public static int MaxPhysicalResistance { get { return World.Player.MaxPhysicResistence; } }
+
+        /// <summary>Maximum fire resistance the player can reach.</summary>
+        public static int MaxFireResistance { get { return World.Player.MaxFireResistence; } }
+
+        /// <summary>Maximum cold resistance the player can reach.</summary>
+        public static int MaxColdResistance { get { return World.Player.MaxColdResistence; } }
+
+        /// <summary>Maximum poison resistance the player can reach.</summary>
+        public static int MaxPoisonResistance { get { return World.Player.MaxPoisonResistence; } }
+
+        /// <summary>Maximum energy resistance the player can reach.</summary>
+        public static int MaxEnergyResistance { get { return World.Player.MaxEnergyResistence; } }
+
+        /// <summary>Maximum defense chance increase the player can reach.</summary>
+        public static int MaxDefenseChanceIncrease { get { return World.Player.MaxDefenseChanceIncrease; } }
+
+        /// <summary>Maximum mana increase. The hit point and stamina equivalents were already exposed; this one was missed.</summary>
+        public static int MaximumManaIncrease { get { return World.Player.MaximumManaIncrease; } }
+
+        /// <summary>Minimum weapon damage, as reported by the status packet.</summary>
+        public static int DamageMin { get { return World.Player.DamageMin; } }
+
+        /// <summary>Maximum weapon damage, as reported by the status packet.</summary>
+        public static int DamageMax { get { return World.Player.DamageMax; } }
+
+        /// <summary>ID of the last spell the player cast. 0 if none this session.</summary>
+        public static int LastSpell { get { return World.Player.LastSpell; } }
+
+        /// <summary>ID of the last skill the player used. 0 if none this session.</summary>
+        public static int LastSkill { get { return World.Player.LastSkill; } }
+
+        /// <summary>Serial of the last object the player used. 0 if none this session.</summary>
+        public static int LastObject { get { return World.Player.LastObject; } }
+
+        /// <summary>Expansion the server reported at login.</summary>
+        public static int Expansion { get { return World.Player.Expansion; } }
+
+        /// <summary>Current season.</summary>
+        public static int Season { get { return World.Player.Season; } }
+
+        /// <summary>Light level where the player is standing.</summary>
+        public static int LocalLightLevel { get { return World.Player.LocalLightLevel; } }
+
+        /// <summary>Global light level.</summary>
+        public static int GlobalLightLevel { get { return World.Player.GlobalLightLevel; } }
+
+        /// <summary>Hue the player's own speech is rendered in.</summary>
+        public static int SpeechHue { get { return World.Player.SpeechHue; } }
+
     }
 }

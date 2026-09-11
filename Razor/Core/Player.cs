@@ -733,6 +733,19 @@ namespace Assistant
             }
         }
 
+        private DateTime m_LastMovement = DateTime.MinValue;
+
+        /// <summary>
+        /// When the player last actually changed tile. Every path that moves
+        /// the player - the movement packet handler, the OSI client and the
+        /// ClassicUO client - assigns through the Position setter below, so
+        /// this is the one place that sees them all.
+        /// </summary>
+        internal DateTime LastMovement
+        {
+            get { return m_LastMovement; }
+        }
+
         public override Point3D Position
         {
             get
@@ -741,6 +754,11 @@ namespace Assistant
             }
             set
             {
+                // Only count a real change of tile. The setter is also hit by
+                // resyncs and calibration, which are not movement.
+                if (base.Position != value)
+                    m_LastMovement = DateTime.UtcNow;
+
                 base.Position = value;
                 // IsCalibrated is always false on CUO and true on OSI client
                 if (m_ExternZ && DLLImport.Razor.IsCalibrated())
