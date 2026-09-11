@@ -176,12 +176,16 @@ namespace Assistant
 
             Assistant.UOAssist.PostSpellCast(this.Number);
 
-            if (World.Player != null)
+            // Capture once: World.Player is cleared on logout from another
+            // thread, so re-reading it after the null check can hand back
+            // null part way through.
+            PlayerData player = World.Player;
+            if (player != null)
             {
-                World.Player.LastSpell = GetID();
+                player.LastSpell = GetID();
                 LastCastTime = DateTime.Now;
                 Targeting.SpellTargetID = 0;
-                World.Player.BeginCast(GetID(), Timeout);
+                player.BeginCast(GetID(), Timeout);
             }
         }
 

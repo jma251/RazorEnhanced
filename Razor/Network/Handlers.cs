@@ -2643,14 +2643,15 @@ namespace Assistant
         /// </summary>
         private static void CheckCastInterrupted(Serial serial, int num)
         {
-            if (World.Player == null)
+            PlayerData player = World.Player;
+            if (player == null)
                 return;
 
-            if (serial != World.Player.Serial && serial != Serial.MinusOne)
+            if (serial != player.Serial && serial != Serial.MinusOne)
                 return;
 
             if (m_CastInterruptedMessages.Contains(num))
-                World.Player.EndCast();
+                player.EndCast();
         }
 
         private static bool IsSpellMessage(int num)

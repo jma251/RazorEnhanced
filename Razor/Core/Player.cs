@@ -738,9 +738,19 @@ namespace Assistant
             }
         }
 
+        // Cast state is written by the network thread and read by script
+        // threads, so it is held as ints and longs rather than a DateTime.
+        // Razor runs as x86, where a 64-bit write is not atomic: a DateTime
+        // read concurrently with a write can come back as a torn value that
+        // belongs to neither. Interlocked on a tick count avoids that without
+        // taking a lock on a property scripts poll in a loop.
         private int m_CastingSpell;
-        private DateTime m_CastingStarted = DateTime.MinValue;
-        private int m_CastingTimeout;
+        private long m_CastingDeadline;
+
+        // A cast time this long is already far past anything real; the clamp
+        // is only here so a hand-edited spells.json cannot wedge IsCasting
+        // on for the rest of the session.
+        private const int MaxCastTimeMs = 60000;
 
         /// <summary>
         /// Called from Spell.Cast, which every cast path funnels through -
@@ -751,15 +761,21 @@ namespace Assistant
         {
             // Abilities with no cast time are finished the moment they are
             // used, so there is nothing to report as "casting".
-            if (timeoutMs <= 0)
+            if (spellId == 0 || timeoutMs <= 0)
             {
                 EndCast();
                 return;
             }
 
+            if (timeoutMs > MaxCastTimeMs)
+                timeoutMs = MaxCastTimeMs;
+
+            long now = DateTime.UtcNow.Ticks;
+
+            // Deadline before spell id, so a reader that sees a spell id is
+            // guaranteed to see the deadline that goes with it.
+            System.Threading.Interlocked.Exchange(ref m_CastingDeadline, now + (timeoutMs * TimeSpan.TicksPerMillisecond));
             m_CastingSpell = spellId;
-            m_CastingTimeout = timeoutMs;
-            m_CastingStarted = DateTime.UtcNow;
         }
 
         /// <summary>
@@ -768,9 +784,10 @@ namespace Assistant
         /// </summary>
         internal void EndCast()
         {
+            // Spell id first, so a reader stops seeing a cast before the
+            // timings it would read go away.
             m_CastingSpell = 0;
-            m_CastingTimeout = 0;
-            m_CastingStarted = DateTime.MinValue;
+            System.Threading.Interlocked.Exchange(ref m_CastingDeadline, 0);
         }
 
         /// <summary>
@@ -781,19 +798,10 @@ namespace Assistant
         {
             get
             {
-                if (m_CastingSpell == 0 || m_CastingStarted == DateTime.MinValue)
+                if (m_CastingSpell == 0)
                     return false;
 
-                if ((DateTime.UtcNow - m_CastingStarted).TotalMilliseconds >= m_CastingTimeout)
-                {
-                    // The cast time elapsed with no interrupt, so the spell
-                    // went off. Clear here rather than wait for something to
-                    // tell us, because nothing will.
-                    EndCast();
-                    return false;
-                }
-
-                return true;
+                return DateTime.UtcNow.Ticks < System.Threading.Interlocked.Read(ref m_CastingDeadline);
             }
         }
 
@@ -810,10 +818,12 @@ namespace Assistant
         {
             get
             {
-                if (!IsCasting)
+                if (m_CastingSpell == 0)
                     return 0;
 
-                double left = m_CastingTimeout - (DateTime.UtcNow - m_CastingStarted).TotalMilliseconds;
+                double left = (System.Threading.Interlocked.Read(ref m_CastingDeadline) - DateTime.UtcNow.Ticks)
+                              / (double)TimeSpan.TicksPerMillisecond;
+
                 return left > 0 ? left : 0;
             }
         }

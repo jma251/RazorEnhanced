@@ -3141,9 +3141,14 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                // Capture once. World.Player is replaced on login and cleared
+                // on logout from another thread, so re-reading it after the
+                // null check can hand back null halfway through.
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return false;
-                return World.Player.IsCasting;
+
+                return player.IsCasting;
             }
         }
 
@@ -3155,9 +3160,11 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return 0;
-                return World.Player.CastingSpell;
+
+                return player.CastingSpell;
             }
         }
 
@@ -3170,9 +3177,11 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return 0;
-                return World.Player.CastingTimeLeft;
+
+                return player.CastingTimeLeft;
             }
         }
 
@@ -3186,11 +3195,24 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return STEP_WALK_FOOT_MS;
 
-                bool mounted = World.Player.GetItemOnLayer(Assistant.Layer.Mount) != null;
-                bool running = World.Player.LastMoveWasRunning;
+                bool running = player.LastMoveWasRunning;
+                bool mounted = false;
+
+                try
+                {
+                    mounted = player.GetItemOnLayer(Assistant.Layer.Mount) != null;
+                }
+                catch
+                {
+                    // Walking the equipment list can trip over the network
+                    // thread re-equipping the player. Reporting the on-foot
+                    // speed for one call is harmless; throwing out of a
+                    // property a script polls in a loop is not.
+                }
 
                 if (mounted)
                     return running ? STEP_RUN_MOUNT_MS : STEP_WALK_MOUNT_MS;
@@ -3216,6 +3238,7 @@ namespace RazorEnhanced
             }
         }
 
+
         /// <summary>
         /// True while the player is moving at running pace. The direction byte
         /// of each move request carries the running bit, so this reflects what
@@ -3225,10 +3248,11 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return false;
 
-                return IsMoving && World.Player.LastMoveWasRunning;
+                return IsMoving && player.LastMoveWasRunning;
             }
         }
 
@@ -3240,10 +3264,11 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return false;
 
-                return IsMoving && !World.Player.LastMoveWasRunning;
+                return IsMoving && !player.LastMoveWasRunning;
             }
         }
 
@@ -3255,9 +3280,11 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return double.MaxValue;
-                return (DateTime.UtcNow - World.Player.LastMovement).TotalMilliseconds;
+
+                return (DateTime.UtcNow - player.LastMovement).TotalMilliseconds;
             }
         }
 
@@ -3270,9 +3297,11 @@ namespace RazorEnhanced
         {
             get
             {
-                if (World.Player == null)
+                Assistant.PlayerData player = World.Player;
+                if (player == null)
                     return -1;
-                return World.Player.LastStepDelay;
+
+                return player.LastStepDelay;
             }
         }
 
