@@ -852,7 +852,20 @@ namespace RazorEnhanced
             return;
         }
 
-        private static (object, FieldInfo, FieldInfo) getFollowProps()
+        /// <summary>
+        /// Finds the object that holds the client's follow state, plus the two
+        /// properties on it.
+        ///
+        /// The follow state really lives on the profile - the GameScene members
+        /// Razor used to reach for are private properties that just forward to
+        /// it - so the profile is what we go for first. It is public, it is the
+        /// actual storage rather than a forwarder, and it does not need the
+        /// Client -> Game -> Scene walk to reach.
+        ///
+        /// The GameScene route is kept as a fallback for client builds that
+        /// still keep the state there.
+        /// </summary>
+        private static (object, PropertyInfo, PropertyInfo) getFollowProps()
         {
             if (Client.IsOSI)
             {
@@ -860,75 +873,51 @@ namespace RazorEnhanced
                 return (null, null, null);
             }
 
-            // We're looking to modify private props of a single instance of
-            // ClassicUO.Client/Game/Scenes/GameScene.cs. To do that, we have
-            // to get a reference to that object. Fortunately, the
-            // "ClassicUO.Client" class has a class/static property holding a
-            // reference to a "Game" object-- we can use that as an anchor, and
-            // walk down the full object tree: Client -> Game -> Scene
+            // Preferred: ProfileManager.CurrentProfile.FollowingMode / FollowingTarget
+            var profileManager = ClassicUOClient.CUOAssembly?.GetType("ClassicUO.Configuration.ProfileManager");
+            var piCurrentProfile = profileManager?.GetProperty("CurrentProfile", BindingFlags.Public | BindingFlags.Static);
+            var profile = piCurrentProfile?.GetValue(null, null);
+            if (profile != null)
+            {
+                Type profileType = profile.GetType();
+                PropertyInfo mode = profileType.GetProperty("FollowingMode", BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo target = profileType.GetProperty("FollowingTarget", BindingFlags.Public | BindingFlags.Instance);
+                if (mode != null && target != null && mode.CanRead && target.CanRead)
+                    return (profile, mode, target);
+            }
 
-            // Start with ClassicUO.Client, get Game
+            // Fallback: walk Client -> Game -> Scene and use the members there.
+            // Note these are PROPERTIES, not fields. Razor asked for fields for
+            // years, which silently returned null and is why CUO.Follow* did
+            // nothing at all rather than reporting an error.
             var client = ClassicUOClient.CUOAssembly?.GetType("ClassicUO.Client");
-            PropertyInfo piGame = null;
-            foreach (var prop in client.GetProperties())
-            {
-                if (prop.Name == "Game")
-                {
-                    piGame = prop;
-                    break;
-                }
-            }
-            if (piGame == null)
-            {
-                SendMessage("CUO.Follow* are currently broken and have no effect [0]", 33, false);
-                return (null, null, null);
-            }
-            var game = piGame.GetValue(client, null);
+            var piGame = client?.GetProperty("Game", BindingFlags.Public | BindingFlags.Static);
+            var game = piGame?.GetValue(null, null);
             if (game == null)
             {
-                SendMessage("CUO.Follow* are currently broken and have no effect [1]", 33, false);
+                SendMessage("CUO.Follow* unavailable: could not reach the client's Game object", 33, false);
                 return (null, null, null);
             }
 
-            // From Game, get Scene
-            PropertyInfo piScene = null;
-            foreach (var prop in game.GetType().GetProperties())
-            {
-                if (prop.Name == "Scene")
-                {
-                    piScene = prop;
-                    break;
-                }
-            }
-            if (piScene == null)
-            {
-                SendMessage("CUO.Follow* are currently broken and have no effect [2]", 33, false);
-                return (null, null, null);
-            }
-            var scene = piScene.GetValue(game);
+            var piScene = game.GetType().GetProperty("Scene", BindingFlags.Public | BindingFlags.Instance);
+            var scene = piScene?.GetValue(game, null);
             if (scene == null)
             {
-                SendMessage("CUO.Follow* are currently broken and have no effect [3]", 33, false);
+                SendMessage("CUO.Follow* unavailable: could not reach the client's Scene object", 33, false);
                 return (null, null, null);
             }
 
-            // Ok we have the object we want, now we just want to dig up 
-            // FieldInfos for the two fields we want to poke.
             Type sceneType = scene.GetType();
-            FieldInfo fiFollowingMode = sceneType.GetField("_followingMode", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (fiFollowingMode == null)
+            const BindingFlags anyInstance = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            PropertyInfo sceneMode = sceneType.GetProperty("_followingMode", anyInstance);
+            PropertyInfo sceneTarget = sceneType.GetProperty("_followingTarget", anyInstance);
+            if (sceneMode == null || sceneTarget == null)
             {
-                SendMessage("CUO.Follow* are currently broken and have no effect [4]", 33, false);
-                return (null, null, null);
-            }
-            FieldInfo fiFollowingTarget = sceneType.GetField("_followingTarget", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (fiFollowingTarget == null)
-            {
-                SendMessage("CUO.Follow* are currently broken and have no effect [5]", 33, false);
+                SendMessage("CUO.Follow* unavailable: this client build does not expose follow state", 33, false);
                 return (null, null, null);
             }
 
-            return (scene, fiFollowingMode, fiFollowingTarget);
+            return (scene, sceneMode, sceneTarget);
         }
 
         /// <summary>
@@ -939,10 +928,12 @@ namespace RazorEnhanced
         /// </summary>
         public static void FollowMobile(uint mobileserial)
         {
-            var (gameScene, fiFollowingMode, fiFollowingTarget) = getFollowProps();
+            var (holder, followingMode, followingTarget) = getFollowProps();
+            if (holder == null)
+                return; // getFollowProps already said why
 
-            fiFollowingMode.SetValue(gameScene, true);
-            fiFollowingTarget.SetValue(gameScene, mobileserial);
+            followingMode.SetValue(holder, true, null);
+            followingTarget.SetValue(holder, mobileserial, null);
         }
 
         /// <summary>
@@ -951,10 +942,12 @@ namespace RazorEnhanced
         /// </summary>
         public static void FollowOff()
         {
-            var (gameScene, fiFollowingMode, fiFollowingTarget) = getFollowProps();
+            var (holder, followingMode, followingTarget) = getFollowProps();
+            if (holder == null)
+                return; // getFollowProps already said why
 
-            fiFollowingMode.SetValue(gameScene, false);
-            fiFollowingTarget.SetValue(gameScene, (uint)0);
+            followingMode.SetValue(holder, false, null);
+            followingTarget.SetValue(holder, (uint)0, null);
         }
 
         /// <summary>
@@ -964,10 +957,12 @@ namespace RazorEnhanced
         /// <returns>bool followingMode, uint followingTarget</returns>
         public static (bool, uint) Following()
         {
-            var (gameScene, fiFollowingMode, fiFollowingTarget) = getFollowProps();
+            var (holder, modeProp, targetProp) = getFollowProps();
+            if (holder == null)
+                return (false, 0); // getFollowProps already said why
 
-            bool followingMode = (bool)fiFollowingMode.GetValue(gameScene);
-            uint followingTarget = (uint)fiFollowingTarget.GetValue(gameScene);
+            bool followingMode = Convert.ToBoolean(modeProp.GetValue(holder, null));
+            uint followingTarget = Convert.ToUInt32(targetProp.GetValue(holder, null));
 
             return (followingMode, followingTarget);
         }
