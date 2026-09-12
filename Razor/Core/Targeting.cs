@@ -69,28 +69,6 @@ namespace Assistant
         /// </summary>
         internal static uint CurrentTargetID { get { return m_CurrentID; } }
 
-        private static volatile bool m_KeepCursorOnServerCancel;
-
-        /// <summary>
-        /// When on, a target cancel arriving from the server is hidden from
-        /// the client and the cursor the player was holding is kept alive.
-        ///
-        /// This exists because applying a bandage makes the server cancel any
-        /// outstanding cursor - about 90ms after the bandage, confirmed on the
-        /// wire - which costs the player whatever they were lining up. Razor
-        /// keeps the cursor's id, so it can decline to pass the cancel on.
-        ///
-        /// Whether the server still honours a click on that id afterwards is
-        /// the open question this is here to answer. If it does, the cursor is
-        /// genuinely saved. If it does not, the cursor is cosmetic and the
-        /// click goes nowhere, which is why this is off unless asked for.
-        /// </summary>
-        internal static bool KeepCursorOnServerCancel
-        {
-            get { return m_KeepCursorOnServerCancel; }
-            set { m_KeepCursorOnServerCancel = value; }
-        }
-
         internal static byte TargetFlags { get { return m_CurFlags; } }
 
         internal static bool NoShowTarget { get { return m_NoShowTarget; } set { m_NoShowTarget = value; } }
@@ -978,21 +956,6 @@ namespace Assistant
             // check for a server cancel command
             if (!m_AllowGround && m_CurrentID == 0 && m_CurFlags == 3)
             {
-                // The player was holding a cursor of their own and has asked
-                // us to protect it. Put back everything this packet just
-                // overwrote and swallow the cancel, so the client never hears
-                // about it and the cursor stays on screen.
-                if (m_KeepCursorOnServerCancel && prevClientTarget && prevID != 0 && !m_Intercept)
-                {
-                    m_AllowGround = prevAllowGround;
-                    m_CurrentID = prevID;
-                    m_CurFlags = prevFlags;
-                    m_HasTarget = true;
-                    m_ClientTarget = true;
-                    args.Block = true;
-                    return;
-                }
-
                 m_HasTarget = false;
                 m_ClientTarget = false;
                 if (m_Intercept)
