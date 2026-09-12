@@ -85,7 +85,12 @@ namespace RazorEnhanced
                 }
                 if (needsCleanup)
                 {
-                    allInstances.RemoveAll(wr => wr.TryGetTarget(out var el) && el == null);
+                    // TryGetTarget returns false once the Journal has been
+                    // collected. The old test was "TryGetTarget(out el) &&
+                    // el == null", which is never true - a live target is not
+                    // null, and a dead one short-circuits - so nothing was ever
+                    // removed and this list grew for the life of the process.
+                    allInstances.RemoveAll(wr => wr == null || !wr.TryGetTarget(out _));
                 }
             }
         }
@@ -107,9 +112,10 @@ namespace RazorEnhanced
             }
         }
 
-        ~Journal()
-        {
-        }
+        // No finalizer on purpose. It used to remove this instance from
+        // allInstances; that job belongs to the WeakReference sweep in
+        // Enqueue now. An empty finalizer is not free - it puts every
+        // Journal on the finalizer queue for nothing.
 
         internal void enqueue(RazorEnhanced.Journal.JournalEntry entry)
         {
