@@ -117,11 +117,61 @@ namespace Assistant
         // school: 2 for magery and the schools that follow its rules, 4 for
         // chivalry. Config/spells.json only carries the base time, so any
         // character with FC at all finishes sooner than the table says.
+        // Defaults, used when Config/spells.json says nothing. These are the
+        // usual rules, but they are only the usual rules - a shard is free to
+        // differ, which is why every one of them can be overridden from the
+        // config rather than requiring a new build.
         private const int FC_STEP_MS      = 250;
         private const int CAST_FLOOR_MS   = 250;
         private const int FC_CAP_DEFAULT  = 2;
         private const int FC_CAP_CHIVALRY = 4;
         private const int CIRCLE_CHIVALRY = 20;
+
+        private static int m_FcStepMs      = FC_STEP_MS;
+        private static int m_CastFloorMs   = CAST_FLOOR_MS;
+        private static int m_FcCapDefault  = FC_CAP_DEFAULT;
+        private static readonly Dictionary<int, int> m_FcCapByCircle = new();
+
+        /// <summary>
+        /// Reads optional casting rules from Config/spells.json, so a shard
+        /// whose rules differ can be corrected by editing a file instead of
+        /// waiting for a build. Shape, all optional:
+        ///
+        ///   "casting": {
+        ///     "fcStepMs":     "250",
+        ///     "castFloorMs":  "250",
+        ///     "fcCapDefault": "2",
+        ///     "fcCapByCircle": { "20": "4" }
+        ///   }
+        /// </summary>
+        private static void LoadCastingRules(JObject root)
+        {
+            m_FcCapByCircle[CIRCLE_CHIVALRY] = FC_CAP_CHIVALRY;
+
+            JToken casting = root.SelectToken("spells.casting");
+            if (casting == null)
+                return;
+
+            int v;
+            if (Int32.TryParse((string)casting["fcStepMs"], out v) && v >= 0)
+                m_FcStepMs = v;
+            if (Int32.TryParse((string)casting["castFloorMs"], out v) && v >= 0)
+                m_CastFloorMs = v;
+            if (Int32.TryParse((string)casting["fcCapDefault"], out v) && v >= 0)
+                m_FcCapDefault = v;
+
+            JToken caps = casting["fcCapByCircle"];
+            if (caps == null)
+                return;
+
+            foreach (JProperty prop in caps.Children<JProperty>())
+            {
+                int circle, cap;
+                if (Int32.TryParse(prop.Name, out circle) &&
+                    Int32.TryParse((string)prop.Value, out cap) && cap >= 0)
+                    m_FcCapByCircle[circle] = cap;
+            }
+        }
 
         /// <summary>
         /// This spell's cast time for the player as they are right now, with
@@ -143,14 +193,16 @@ namespace Assistant
                 if (p == null)
                     return baseMs;
 
-                int cap = (Circle == CIRCLE_CHIVALRY) ? FC_CAP_CHIVALRY : FC_CAP_DEFAULT;
+                int cap;
+                if (!m_FcCapByCircle.TryGetValue(Circle, out cap))
+                    cap = m_FcCapDefault;
 
                 int fc = p.FasterCasting;
                 if (fc < 0) fc = 0;
                 if (fc > cap) fc = cap;
 
-                int adjusted = baseMs - (fc * FC_STEP_MS);
-                return adjusted < CAST_FLOOR_MS ? CAST_FLOOR_MS : adjusted;
+                int adjusted = baseMs - (fc * m_FcStepMs);
+                return adjusted < m_CastFloorMs ? m_CastFloorMs : adjusted;
             }
         }
 
@@ -283,6 +335,8 @@ namespace Assistant
                     return;
 
                 JObject root = JObject.Parse(File.ReadAllText(path));
+                LoadCastingRules(root);
+
                 JToken list = root.SelectToken("spells.spell");
                 if (list == null)
                     return;

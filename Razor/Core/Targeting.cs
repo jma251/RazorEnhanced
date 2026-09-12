@@ -969,6 +969,23 @@ namespace Assistant
             if (Spell.LastCastTime + TimeSpan.FromSeconds(3.0) > DateTime.Now && Spell.LastCastTime + TimeSpan.FromSeconds(0.5) <= DateTime.Now && m_SpellTargID == 0)
                 m_SpellTargID = m_CurrentID;
 
+            // A cursor arriving IS the cast finishing.
+            //
+            // The server speaks the words, waits out the cast time, and only
+            // then sends the cursor - so this is the exact moment the spell
+            // completed, reported by the server rather than worked out from
+            // Faster Casting and a table of base times. For every targeted
+            // spell this is better than any calculation can be: it needs no
+            // knowledge of the shard's caps, and it is right even when
+            // Protection or some shard-specific rule changes the timing.
+            //
+            // The cast timer stays as the fallback, because spells that take
+            // effect without asking for a target never produce a cursor and
+            // have nothing else to go on.
+            PlayerData caster = World.Player;
+            if (caster != null && caster.IsCasting)
+                caster.EndCast();
+
             m_HasTarget = true;
             m_ClientTarget = false;
 
