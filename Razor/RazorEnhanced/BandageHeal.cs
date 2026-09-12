@@ -340,37 +340,12 @@ namespace RazorEnhanced
 
         static internal Mutex HealMutex = new();
         static internal int NoBandageMsgCount = 0;
-        static internal int CursorWarnCount = 0;
         internal static void Heal(Assistant.Mobile target, bool wait)
         {
             if (false == HealMutex.WaitOne(1))
                 return;
             try
             {
-                // Do not heal while the player is holding a targeting cursor.
-                //
-                // Applying a bandage makes the server cancel any cursor that
-                // is outstanding - confirmed on the wire, the cancel arrives
-                // about 90ms after the bandage and is followed by "You begin
-                // applying the bandages". So a heal fired while the player is
-                // lining up a spell costs them that spell, and no combination
-                // of settings avoids it, because the cancel comes from the
-                // server rather than from Razor.
-                //
-                // Waiting is the only way to leave the player's cursor alone.
-                // The agent runs on a timer, so it simply tries again on the
-                // next tick, once the cursor has been used or dropped.
-                if (Assistant.Targeting.HasTarget)
-                {
-                    if (CursorWarnCount <= 0)
-                    {
-                        AddLog("Holding off: you have a targeting cursor up");
-                        CursorWarnCount = 20;
-                    }
-                    CursorWarnCount--;
-                    return;
-                }
-
                 bool checkForBandage = true;
                 if (SelfHealUseText && SelfHealIgnoreCount)
                     checkForBandage = false;
