@@ -9,14 +9,23 @@ name: build-dev
 #   * it only ever publishes to the "dev" tag, never "latest"
 #   * it is marked prerelease, so GitHub does not offer it as the current
 #     release on the repository front page
-#   * it writes NO RazorEnhancedAutoUpdater.xml. The in-app updater reads
-#     that file from the "latest" release, so a dev build can never be
-#     pushed to anybody through the update prompt
+#   * it writes a RazorEnhancedAutoUpdater.xml, but attaches it to the
+#     "dev" release only. A live install reads its manifest from the
+#     "latest" release and never looks at "dev", so a dev build still
+#     cannot be offered to anybody on the normal download. Only a binary
+#     produced by THIS workflow points at the dev manifest, and that URL
+#     is stamped in at build time rather than committed, so merging dev
+#     into release/1.0 cannot leak it
 #   * it does not touch changelog.html
 #
-# The version it stamps ends in 9x (e.g. 1.0.0.1490) so a dev build is
-# obvious in the title bar and always sorts above the live build, which
-# means installing a dev build will not be silently "updated" backwards.
+# Versions are 1.0.0.<patch>9<nn>, so 1.0.0.14901 for the first dev build.
+# Five digits where the live build has four, and the 9 in the middle, make
+# a test build unmistakable in the title bar.
+#
+# It also sorts ABOVE the live build (14901 > 1406), which matters: a dev
+# tester is never offered the live build as an "update" and so cannot be
+# silently rolled backwards. Going back to live is a deliberate manual
+# reinstall from the "latest" release.
 #
 # Runs on every push to dev, or by hand from the Actions tab.
 
@@ -69,8 +78,8 @@ jobs:
       - name: Stamp a dev version number
         shell: pwsh
         run: |
-          # 1.0.0.<PATCH>9<NN> - the 9 marks it as a dev build, so it is
-          # unmistakable in the title bar and sorts above any live build.
+          # 1.0.0.<PATCH>9<NN>, e.g. 1.0.0.14901. The 9 marks it as a dev
+          # build and keeps it sorting above any live build.
           $build   = "{0:D2}" -f ($env:GITHUB_RUN_NUMBER % 100)
           $version = "1.0.0.$($env:UPSTREAM_PATCH)9$build"
           Write-Host "Dev version: $version"
@@ -91,6 +100,33 @@ jobs:
           # Working copy only. Never committed.
           Set-Content -Path $path -Value $new -NoNewline
           Write-Host (Get-Content $path | Select-String 'AssemblyVersion')
+
+      # Point THIS build's updater at the dev release instead of the live one,
+      # so a tester can press "check for updates" and get the next dev build.
+      #
+      # Done here rather than by editing Client.cs on the dev branch, and
+      # deliberately so: if the URL were committed, merging dev into
+      # release/1.0 would ship it to everyone and quietly move the whole
+      # player base onto dev builds. Stamping it into the working copy means
+      # the committed source always says "latest" and only the binary this
+      # workflow produces says "dev".
+      - name: Point the updater at the dev release
+        shell: pwsh
+        run: |
+          $path = "Razor/Client/Client.cs"
+          $text = Get-Content $path -Raw
+          $devUrl = "${{ github.server_url }}/${{ github.repository }}/releases/download/$env:RELEASE_TAG/RazorEnhancedAutoUpdater.xml"
+
+          if ($text -notmatch 'releases/download/latest/RazorEnhancedAutoUpdater\.xml') {
+            Write-Error "Could not find the live update URL in $path - the constant must have moved. Refusing to build a dev binary that would still update from 'latest'."
+            exit 1
+          }
+
+          $new = $text -replace [regex]::Escape('https://github.com/jma251/RazorEnhanced-Holiday-Edition/releases/download/latest/RazorEnhancedAutoUpdater.xml'), $devUrl
+          Set-Content -Path $path -Value $new -NoNewline
+
+          Write-Host "Updater now points at: $devUrl"
+          Get-Content $path | Select-String 'RazorEnhancedAutoUpdater.xml'
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -164,6 +200,26 @@ jobs:
           "DEV_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Packaged $zip"
 
+      # The dev release gets its own manifest. Live users never see it: their
+      # binary reads the manifest at the "latest" tag, this one lives at "dev".
+      - name: Write the dev auto-updater manifest
+        shell: pwsh
+        run: |
+          $base = "${{ github.server_url }}/${{ github.repository }}/releases/download/$env:RELEASE_TAG"
+
+          $xml = @()
+          $xml += '<?xml version="1.0" encoding="UTF-8"?>'
+          $xml += '<item>'
+          $xml += "  <version>$env:DEV_VERSION</version>"
+          $xml += "  <url>$base/$env:DEV_ZIP</url>"
+          $xml += "  <changelog>${{ github.server_url }}/${{ github.repository }}/releases/tag/$env:RELEASE_TAG</changelog>"
+          $xml += '  <mandatory>false</mandatory>'
+          $xml += '</item>'
+
+          Set-Content -Path "RazorEnhancedAutoUpdater.xml" -Value $xml -Encoding UTF8
+          Write-Host "--- dev RazorEnhancedAutoUpdater.xml ---"
+          Get-Content "RazorEnhancedAutoUpdater.xml" | ForEach-Object { Write-Host $_ }
+
       - name: Publish the dev prerelease
         shell: pwsh
         env:
@@ -192,6 +248,7 @@ jobs:
 
           gh release create $tag `
             "$env:DEV_ZIP" `
+            "RazorEnhancedAutoUpdater.xml" `
             --title "Dev build $env:DEV_VERSION" `
             --notes "$notes" `
             --prerelease `
