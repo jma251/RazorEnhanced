@@ -236,12 +236,21 @@ namespace RazorEnhanced
         // Misc.SendMessage(p.X)
         // Misc.SendMessage(p.Y)
         /// <summary>
-        /// Get the position of the currently active Gump/Container.
-        /// (OSI client only, no ClassicUO)
+        /// Get the screen position of the container window that is currently
+        /// on top.
+        ///
+        /// Works on both clients. On OSI this reads uo.dll as it always has.
+        /// On ClassicUO it asks the client where its topmost container gump
+        /// is - previously this threw on ClassicUO, because the uo.dll path
+        /// below only exists for the OSI client.
         /// </summary>
-        /// <returns>Return X,Y coordinates as a Point2D</returns>
+        /// <returns>Return X,Y coordinates as a Point2D. (0,0) if no
+        /// container window is open.</returns>
         public static Point GetContPosition()
         {
+            if (!Assistant.Client.IsOSI)
+                return GetContPositionCUO();
+
             RazorEnhanced.UoWarper.UODLLHandleClass = new RazorEnhanced.UoWarper.UO();
 
             if (!RazorEnhanced.UoWarper.UODLLHandleClass.Open())
@@ -254,6 +263,75 @@ namespace RazorEnhanced
             Point p = RazorEnhanced.UoWarper.UODLLHandleClass.GetContPos();
 
             return p;
+        }
+
+        // ClassicUO keeps its open windows in UIManager.Gumps, in draw order,
+        // and every one of them carries a Location because they all derive
+        // from Control. So the topmost container window is simply the first
+        // entry whose GumpType says container.
+        //
+        // Two values count as a container: GumpType.Container (2) is the
+        // stock one, and GridContainer (8787) is the grid view TazUO adds.
+        // A client using grid containers would otherwise report nothing.
+        private const int CUO_GUMPTYPE_CONTAINER = 2;
+        private const int CUO_GUMPTYPE_GRIDCONTAINER = 8787;
+
+        private static Point GetContPositionCUO()
+        {
+            try
+            {
+                var asm = ClassicUOClient.CUOAssembly;
+                if (asm == null)
+                    return new Point(0, 0);
+
+                var gumpsProp = asm.GetType("ClassicUO.Game.Managers.UIManager")
+                                   ?.GetProperty("Gumps", System.Reflection.BindingFlags.Public
+                                                        | System.Reflection.BindingFlags.Static);
+                var list = gumpsProp?.GetValue(null) as System.Collections.IEnumerable;
+                if (list == null)
+                    return new Point(0, 0);
+
+                var gumpType = asm.GetType("ClassicUO.Game.UI.Gumps.Gump");
+                var typeProp = gumpType?.GetProperty("GumpType",
+                                    System.Reflection.BindingFlags.Public
+                                  | System.Reflection.BindingFlags.Instance);
+                var locProp = gumpType?.GetProperty("Location",
+                                    System.Reflection.BindingFlags.Public
+                                  | System.Reflection.BindingFlags.Instance);
+                if (typeProp == null || locProp == null)
+                    return new Point(0, 0);
+
+                foreach (var gump in list)
+                {
+                    if (gump == null)
+                        continue;
+
+                    int kind;
+                    try { kind = Convert.ToInt32(typeProp.GetValue(gump)); }
+                    catch { continue; }
+
+                    if (kind != CUO_GUMPTYPE_CONTAINER && kind != CUO_GUMPTYPE_GRIDCONTAINER)
+                        continue;
+
+                    object loc = locProp.GetValue(gump);
+                    if (loc == null)
+                        continue;
+
+                    // Microsoft.Xna.Framework.Point, read by name so Razor does
+                    // not need a reference to the client's graphics assembly.
+                    var lt = loc.GetType();
+                    int x = Convert.ToInt32(lt.GetField("X")?.GetValue(loc) ?? 0);
+                    int y = Convert.ToInt32(lt.GetField("Y")?.GetValue(loc) ?? 0);
+                    return new Point(x, y);
+                }
+            }
+            catch
+            {
+                // A reflection miss means the client changed shape. Report no
+                // container rather than taking the script down.
+            }
+
+            return new Point(0, 0);
         }
 
         // IsItem 
