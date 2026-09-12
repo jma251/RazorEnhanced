@@ -112,6 +112,48 @@ namespace Assistant
             }
         }
 
+        // Faster Casting takes a quarter second off every cast per point,
+        // down to a floor of a quarter second, and the item cap depends on the
+        // school: 2 for magery and the schools that follow its rules, 4 for
+        // chivalry. Config/spells.json only carries the base time, so any
+        // character with FC at all finishes sooner than the table says.
+        private const int FC_STEP_MS      = 250;
+        private const int CAST_FLOOR_MS   = 250;
+        private const int FC_CAP_DEFAULT  = 2;
+        private const int FC_CAP_CHIVALRY = 4;
+        private const int CIRCLE_CHIVALRY = 20;
+
+        /// <summary>
+        /// This spell's cast time for the player as they are right now, with
+        /// Faster Casting applied. Falls back to the table value when there is
+        /// no player to read.
+        ///
+        /// Ported from ClassicUO's SelfHealTimings, which works the same thing
+        /// out for its own healing loop.
+        /// </summary>
+        internal int TimeoutForPlayer
+        {
+            get
+            {
+                int baseMs = Timeout;
+                if (baseMs <= 0)
+                    return baseMs;   // instant abilities stay instant
+
+                PlayerData p = World.Player;
+                if (p == null)
+                    return baseMs;
+
+                int cap = (Circle == CIRCLE_CHIVALRY) ? FC_CAP_CHIVALRY : FC_CAP_DEFAULT;
+
+                int fc = p.FasterCasting;
+                if (fc < 0) fc = 0;
+                if (fc > cap) fc = cap;
+
+                int adjusted = baseMs - (fc * FC_STEP_MS);
+                return adjusted < CAST_FLOOR_MS ? CAST_FLOOR_MS : adjusted;
+            }
+        }
+
         internal int GetHue(int def)
         {
             if (RazorEnhanced.Settings.General.ReadBool("ForceSpellHue"))
@@ -187,7 +229,7 @@ namespace Assistant
                 player.LastSpell = GetID();
                 LastCastTime = DateTime.Now;
                 Targeting.SpellTargetID = 0;
-                player.BeginCast(GetID(), Timeout);
+                player.BeginCast(GetID(), TimeoutForPlayer);
             }
         }
 
