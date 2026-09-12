@@ -73,24 +73,61 @@ namespace RazorEnhanced
         }
 
         /// <summary>
-        /// Wait for the cursor to show the target, or the sound for fizzle (0x5c) or pause the script for a maximum amount of time. 
+        /// Wait for the cursor to show the target, or for the fizzle sound, or
+        /// pause the script for a maximum amount of time, whichever comes first.
         /// and an optional flag True or False. True Not show cursor, false show it
         /// </summary>
         /// <param name="delay">Maximum amount to wait, in milliseconds</param>
         /// <param name="noshow">Prevent the cursor to display the target.</param>
-        /// <returns></returns>
+        /// <returns>True: the cursor is up - False: it fizzled, or the wait timed out.</returns>
 
         public static bool WaitForTargetOrFizzle(int delay = 5000, bool noshow = false)
         {
-            ManualResetEvent waitOrFizzleEvent = new(false);
+            // Packet 0x54 is "play a sound", not "you fizzled" - any sound near
+            // you arrives on it. The fizzle is sound 0x5C, which is what the doc
+            // comment above always meant. The old code signalled on the packet
+            // and so returned on a door, a sheep, or somebody else's spell.
+            const ushort FIZZLE_SOUND = 0x5C;
+
+            ManualResetEvent fizzleEvent = new(false);
             void watchForFizzle(PacketReader p, PacketHandlerEventArgs args)
             {
-                waitOrFizzleEvent.Set();
+                p.ReadByte();                       // flags
+                if (p.ReadUInt16() == FIZZLE_SOUND)
+                    fizzleEvent.Set();
             }
-            PacketHandler.RegisterServerToClientViewer(0x54, watchForFizzle);
-            waitOrFizzleEvent.WaitOne(delay);
-            PacketHandler.RemoveServerToClientViewer(0x54, watchForFizzle);
 
+            // noshow was accepted and then ignored. This is what WaitForTarget
+            // does with it.
+            Assistant.Targeting.NoShowTarget = noshow;
+            PacketHandler.RegisterServerToClientViewer(0x54, watchForFizzle);
+            try
+            {
+                // The old code never looked at the cursor while it waited, so a
+                // cursor that arrived silently - the normal case - still cost the
+                // caller the full delay.
+                System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+                while (!Assistant.Targeting.HasTarget)
+                {
+                    long left = delay - watch.ElapsedMilliseconds;
+                    if (left <= 0)
+                        break;
+                    // Returns the moment a fizzle lands, and otherwise every 2ms
+                    // so the cursor check stays responsive.
+                    if (fizzleEvent.WaitOne((int)Math.Min(2L, left)))
+                        break;
+                }
+                watch.Stop();
+            }
+            finally
+            {
+                PacketHandler.RemoveServerToClientViewer(0x54, watchForFizzle);
+                Assistant.Targeting.NoShowTarget = false;
+            }
+
+            // fizzleEvent is deliberately not disposed - the handler can be
+            // mid-Set() on another thread as we unregister it, and Set() on a
+            // disposed handle would throw inside packet processing.
             return HasTarget();
         }
 
