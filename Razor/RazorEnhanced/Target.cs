@@ -57,19 +57,44 @@ namespace RazorEnhanced
         /// <returns></returns>
         public static bool WaitForTarget(int delay, bool noshow = false)
         {
+            // Wait for the cursor THIS call is expecting, not whichever cursor
+            // happens to be on screen already.
+            //
+            // This used to return the instant HasTarget was true. If the
+            // player was holding a cursor of their own - lining up a spell,
+            // say - the wait finished immediately and the TargetExecute that
+            // normally follows answered the player's cursor instead, spending
+            // their spell on whatever the script meant to target. The server
+            // stamps every cursor with its own id, so remembering the id that
+            // was up when we started is enough to tell them apart.
+            uint startingTarget = Assistant.Targeting.HasTarget
+                ? Assistant.Targeting.CurrentTargetID
+                : 0;
+
             Assistant.Targeting.NoShowTarget = noshow;
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            while (Assistant.Targeting.HasTarget == false)
+            try
             {
-                Thread.Sleep(2);
-                if (watch.ElapsedMilliseconds >= delay)
-                    break;
-                var elapsedMs2 = watch.ElapsedMilliseconds;
+                while (true)
+                {
+                    if (Assistant.Targeting.HasTarget &&
+                        Assistant.Targeting.CurrentTargetID != startingTarget)
+                        break;
+
+                    if (watch.ElapsedMilliseconds >= delay)
+                        break;
+
+                    Thread.Sleep(2);
+                }
             }
-            watch.Stop();
-            var elapsedMs = watch.ElapsedMilliseconds;
-            Assistant.Targeting.NoShowTarget = false;
-            return HasTarget();
+            finally
+            {
+                watch.Stop();
+                Assistant.Targeting.NoShowTarget = false;
+            }
+
+            return Assistant.Targeting.HasTarget &&
+                   Assistant.Targeting.CurrentTargetID != startingTarget;
         }
 
         /// <summary>

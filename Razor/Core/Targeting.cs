@@ -61,6 +61,14 @@ namespace Assistant
 
         internal static bool HasTarget { get { return m_HasTarget; } }
 
+        /// <summary>
+        /// Identifies the cursor currently up. The server stamps every target
+        /// cursor with its own id, so this tells one cursor apart from the
+        /// next - which is what scripts need in order to wait for THEIR
+        /// cursor rather than grabbing whichever one happens to be on screen.
+        /// </summary>
+        internal static uint CurrentTargetID { get { return m_CurrentID; } }
+
         internal static byte TargetFlags { get { return m_CurFlags; } }
 
         internal static bool NoShowTarget { get { return m_NoShowTarget; } set { m_NoShowTarget = value; } }
