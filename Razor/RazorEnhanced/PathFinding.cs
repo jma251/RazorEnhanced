@@ -940,7 +940,9 @@ namespace RazorEnhanced
         /// </summary>
         /// <param name="x">X map coordinates or Point3D</param>
         /// <param name="y">Y map coordinates</param>
-        /// <param name="z">Z map coordinates</param>
+        /// <param name="z">Ignored. A Route is an X,Y path; the pathfinder reads
+        /// each tile's height from the map as it walks, so there is nothing for a
+        /// given Z to do. Accepted so a Point3D can be passed straight through.</param>
         public static void PathFindTo(int x, int y, int z = 0)
         {
             Route r = new();
