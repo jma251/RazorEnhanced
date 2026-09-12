@@ -1,0 +1,222 @@
+name: build-dev
+
+# Builds RazorEnhanced from the dev branch and publishes it as a PRERELEASE
+# tagged "dev". This is the testing lane - nothing it does can reach the
+# players using the normal download.
+#
+# How it is kept apart from the live build:
+#
+#   * it only ever publishes to the "dev" tag, never "latest"
+#   * it is marked prerelease, so GitHub does not offer it as the current
+#     release on the repository front page
+#   * it writes NO RazorEnhancedAutoUpdater.xml. The in-app updater reads
+#     that file from the "latest" release, so a dev build can never be
+#     pushed to anybody through the update prompt
+#   * it does not touch changelog.html
+#
+# The version it stamps ends in 9x (e.g. 1.0.0.1490) so a dev build is
+# obvious in the title bar and always sorts above the live build, which
+# means installing a dev build will not be silently "updated" backwards.
+#
+# Runs on every push to dev, or by hand from the Actions tab.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths-ignore:
+      - '.gitattributes'
+      - '.gitignore'
+      - '.vscode/**'
+      - '*.md'
+      - 'changelog.html'
+      - 'docs/**'
+      - 'dokuwiki/**'
+      - 'LICENSE.txt'
+      - 'UOS_Documentation.html'
+
+permissions:
+  contents: write
+
+env:
+  SOLUTION_FILE_PATH: Razor.sln
+  BUILD_PLATFORM: Any CPU
+  BUILD_CONFIGURATION: Debug
+  OUTPUT_DIR: bin\Win32\Debug
+  # Never "latest". This is the whole point of this file.
+  RELEASE_TAG: dev
+  UPSTREAM_PATCH: 14
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Refuse to run against the live branch
+        shell: pwsh
+        run: |
+          $ref = "${{ github.ref_name }}"
+          if ($ref -eq "release/1.0") {
+            Write-Error "build-dev must not run on release/1.0. Use build-latest for the live build."
+            exit 1
+          }
+          Write-Host "Building dev release from '$ref'."
+
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Stamp a dev version number
+        shell: pwsh
+        run: |
+          # 1.0.0.<PATCH>9<NN> - the 9 marks it as a dev build, so it is
+          # unmistakable in the title bar and sorts above any live build.
+          $build   = "{0:D2}" -f ($env:GITHUB_RUN_NUMBER % 100)
+          $version = "1.0.0.$($env:UPSTREAM_PATCH)9$build"
+          Write-Host "Dev version: $version"
+          "DEV_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          $path = "Razor/Properties/AssemblyInfo.cs"
+          $text = Get-Content $path -Raw
+          $new  = [regex]::Replace(
+            $text,
+            'AssemblyVersion\("[0-9\.]+"\)',
+            "AssemblyVersion(""$version"")"
+          )
+          $new = [regex]::Replace(
+            $new,
+            'AssemblyFileVersion\("[0-9\.]+"\)',
+            "AssemblyFileVersion(""$version"")"
+          )
+          # Working copy only. Never committed.
+          Set-Content -Path $path -Value $new -NoNewline
+          Write-Host (Get-Content $path | Select-String 'AssemblyVersion')
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Add NuGet to PATH
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: nuget restore $env:SOLUTION_FILE_PATH
+
+      - name: Build the solution
+        shell: pwsh
+        run: |
+          msbuild /m `
+            /p:Configuration="$env:BUILD_CONFIGURATION" `
+            /p:Platform="$env:BUILD_PLATFORM" `
+            /v:minimal `
+            $env:SOLUTION_FILE_PATH
+
+      # Same check the live build does. A zip that looks fine and then fails
+      # to start on the tester's machine wastes more time than it saves.
+      - name: Verify the build output is complete
+        shell: pwsh
+        run: |
+          $out = $env:OUTPUT_DIR
+          if (-not (Test-Path $out)) {
+            Write-Error "Build output directory '$out' does not exist."
+            exit 1
+          }
+
+          $requiredFiles = @(
+            'RazorEnhanced.exe',
+            'RazorEnhanced.exe.config',
+            'Ultima.dll',
+            'FastColoredTextBox.dll',
+            'Crypt.dll',
+            'Loader.dll',
+            'uo.dll',
+            'zlib.dll',
+            'UOMod.dll',
+            'IronPython.dll',
+            'IronPython.Modules.dll',
+            'Microsoft.Scripting.dll',
+            'Microsoft.Dynamic.dll',
+            'NLog.dll',
+            'NLog.config'
+          )
+
+          $requiredDirs = @('Lib', 'Config', 'Definitions', 'Language', 'Scripts')
+
+          $missing = @()
+          foreach ($f in $requiredFiles) {
+            if (-not (Test-Path (Join-Path $out $f))) { $missing += $f }
+          }
+          foreach ($d in $requiredDirs) {
+            if (-not (Test-Path (Join-Path $out $d))) { $missing += "$d\" }
+          }
+
+          if ($missing.Count -gt 0) {
+            Write-Error "The build output is incomplete. Missing: $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host "Build output looks complete."
+
+      - name: Package the build
+        shell: pwsh
+        run: |
+          $zip = "RazorEnhanced-HolidayEdition-dev-$env:DEV_VERSION.zip"
+          Compress-Archive -Path "$env:OUTPUT_DIR\*" -DestinationPath $zip -Force
+          "DEV_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Packaged $zip"
+
+      - name: Publish the dev prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if ($tag -eq "latest") {
+            Write-Error "Refusing to publish: RELEASE_TAG is 'latest'."
+            exit 1
+          }
+
+          # Replace the previous dev release so the download link is stable.
+          gh release delete $tag --yes --cleanup-tag 2>$null
+          if ($LASTEXITCODE -ne 0) { Write-Host "No previous '$tag' release to remove." }
+
+          $notes = @(
+            "**Test build - not for general use.**",
+            "",
+            "Version ``$env:DEV_VERSION`` from branch ``${{ github.ref_name }}`` (``${{ github.sha }}``).",
+            "",
+            "This build is NOT offered by the in-app updater. It has no update",
+            "manifest attached, so nobody on the normal download will ever be",
+            "moved onto it. To go back to the live build, download it from the",
+            "``latest`` release and install over the top."
+          ) -join "`n"
+
+          gh release create $tag `
+            "$env:DEV_ZIP" `
+            --title "Dev build $env:DEV_VERSION" `
+            --notes "$notes" `
+            --prerelease `
+            --target "${{ github.sha }}"
+
+          Write-Host "Published prerelease '$tag'."
+
+      - name: Confirm the live release was not touched
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Cheap insurance. If a dev run ever damages the live release the
+          # players' updater points at, we want to know here and not from a
+          # bug report.
+          $json = gh release view latest --json tagName,assets 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No 'latest' release exists yet - nothing to check."
+            exit 0
+          }
+          $rel = $json | ConvertFrom-Json
+          $names = $rel.assets | ForEach-Object { $_.name }
+          Write-Host "'latest' still present with assets: $($names -join ', ')"
+          if ($names -notcontains "RazorEnhancedAutoUpdater.xml") {
+            Write-Error "'latest' has lost its update manifest. The updater is broken for everyone."
+            exit 1
+          }
+          Write-Host "Live release and its update manifest are intact."
