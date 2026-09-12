@@ -405,16 +405,23 @@ namespace RazorEnhanced
                     }
                     else
                     {
+                        Assistant.Targeting.QueueAutoTarget(target.Serial, Assistant.Enums.TargetFlags.Beneficial);
                         Player.ChatSay(0, SelfHealUseTextContent);
-                        Target.WaitForTarget(1000, true);
-                        Target.TargetExecute(target.Serial);
                     }
                 }
                 else if (UseTarget) // Uso nuovo packet
                 {
+                    // Register the answer BEFORE using the bandage, so the
+                    // cursor that comes back is answered by the cursor handler
+                    // itself. The old sequence - use, then wait, then answer -
+                    // would answer whatever cursor happened to be up, which
+                    // meant a heal firing while the player was lining up a
+                    // spell spent that spell on the heal target.
+                    //
+                    // Asking for Beneficial means a Harmful cursor arriving in
+                    // between is left alone instead of being swallowed.
+                    Assistant.Targeting.QueueAutoTarget(target.Serial, Assistant.Enums.TargetFlags.Beneficial);
                     Items.UseItem(bandage.Serial);
-                    Target.WaitForTarget(1000, true);
-                    Target.TargetExecute(target.Serial);
                 }
                 else
                 {

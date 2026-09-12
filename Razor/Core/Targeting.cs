@@ -364,8 +364,39 @@ namespace Assistant
                 m_QueueTarget = LastTargetAction;
             }
         }
+        private static Assistant.Enums.TargetFlags m_AutoTargetKind = Assistant.Enums.TargetFlags.Any;
+
+        /// <summary>
+        /// Queue an answer for the NEXT target cursor, without ever touching a
+        /// cursor the player is already holding.
+        ///
+        /// SetAutoTarget above answers straight away when a cursor happens to
+        /// be up, which means an agent firing while the player is lining up a
+        /// spell spends that spell on the agent's target. Registering the
+        /// answer first and letting the cursor handler consume it is the only
+        /// way an agent can target without interfering: a cursor that arrived
+        /// before the registration can never be the one we answer.
+        ///
+        /// expectedFlags narrows it further. A bandage asks for Beneficial, so
+        /// a Harmful cursor arriving in between is left alone rather than
+        /// swallowed. Pass Assistant.Enums.TargetFlags.Any to accept whatever turns up.
+        ///
+        /// This mirrors how ClassicUO handles the same problem with its
+        /// NextAutoTarget, which is why its bandage agent does not have this
+        /// bug.
+        /// </summary>
+        internal static void QueueAutoTarget(uint serial, Assistant.Enums.TargetFlags expectedFlags)
+        {
+            m_AutoTarget = new TargetInfo();
+            m_AutoTarget.Serial = new Serial(serial);
+            m_AutoTargetKind = expectedFlags;
+            m_QueueTarget = AutoTargetAction;
+            // Deliberately no "fire now if a cursor is up" branch.
+        }
+
         internal static void SetAutoTarget(uint serial)
         {
+            m_AutoTargetKind = Assistant.Enums.TargetFlags.Any;
             m_AutoTarget = new TargetInfo();
             m_AutoTarget.Serial = new Serial(serial);
             m_QueueTarget = AutoTargetAction;
@@ -378,6 +409,7 @@ namespace Assistant
         internal static void CancelAutoTarget()
         {
             m_AutoTarget = null;
+            m_AutoTargetKind = Assistant.Enums.TargetFlags.Any;
             m_QueueTarget = null;
         }
 
@@ -485,6 +517,13 @@ namespace Assistant
             targ = m_AutoTarget;
 
             if (targ == null)
+                return false;
+
+            // Leave cursors of the wrong kind alone. A bandage waiting on a
+            // Beneficial cursor must not swallow the Harmful one the player
+            // just armed.
+            if (m_AutoTargetKind != Assistant.Enums.TargetFlags.Any &&
+                (Assistant.Enums.TargetFlags)m_CurFlags != m_AutoTargetKind)
                 return false;
 
             Point3D pos;
