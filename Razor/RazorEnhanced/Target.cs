@@ -50,6 +50,38 @@ namespace RazorEnhanced
         }
 
         /// <summary>
+        /// Keep the targeting cursor you are holding when the server cancels it.
+        ///
+        /// Applying a bandage makes the server cancel whatever cursor is
+        /// outstanding - the cancel lands about 90ms after the bandage - so a
+        /// heal that fires while you are lining up a spell costs you the spell.
+        /// With this on, Razor hides that cancel from the client and keeps your
+        /// cursor on screen with its original id.
+        ///
+        /// Whether the server still accepts a click on that cursor afterwards
+        /// depends on the shard, so test it before relying on it: turn it on,
+        /// arm a spell, let a bandage fire, then click your target and see
+        /// whether the spell actually lands. If it does not, the cursor is
+        /// only cosmetic on your shard and this is not worth leaving on.
+        ///
+        /// Off by default.
+        /// </summary>
+        /// <param name="keep">True to keep your cursor, False for normal behaviour.</param>
+        public static void KeepCursorOnServerCancel(bool keep)
+        {
+            Assistant.Targeting.KeepCursorOnServerCancel = keep;
+        }
+
+        /// <summary>
+        /// Whether Razor is currently keeping your cursor through server cancels.
+        /// </summary>
+        /// <returns>True if enabled.</returns>
+        public static bool IsKeepingCursorOnServerCancel()
+        {
+            return Assistant.Targeting.KeepCursorOnServerCancel;
+        }
+
+        /// <summary>
         /// Wait for the cursor to show the target, pause the script for a maximum amount of time. and optional flag True or False. True Not show cursor, false show it
         /// </summary>
         /// <param name="delay">Maximum amount to wait, in milliseconds</param>
