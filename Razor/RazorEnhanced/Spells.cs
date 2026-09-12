@@ -72,15 +72,26 @@ namespace RazorEnhanced
             return true;
         }
 
-        static CountdownEvent countdownEvent = null;
+        // One entry per in-flight WaitCastComplete. This used to be a single
+        // static field, so a second script casting at the same time replaced
+        // the first script's event and left the first one waiting on an object
+        // nothing would ever signal, until its timeout ran out.
+        private static readonly List<CountdownEvent> m_CastWaiters = new();
 
         internal static void ParalyzeChanged(Assistant.Mobile mobile)
         {
-            if (mobile == World.Player && countdownEvent != null)
+            if (mobile != World.Player)
+                return;
+
+            // A waiter takes itself out of this list before disposing, and both
+            // that and this run under the lock, so nothing reached from here can
+            // already be disposed.
+            lock (m_CastWaiters)
             {
-                if (countdownEvent.CurrentCount > 0)
+                foreach (CountdownEvent waiter in m_CastWaiters)
                 {
-                    countdownEvent.Signal();
+                    if (waiter.CurrentCount > 0)
+                        waiter.Signal();
                 }
             }
         }
@@ -92,12 +103,24 @@ namespace RazorEnhanced
         {
             if (maxWait > 0)
             {
+                // waitOrFizzleEvent is deliberately not disposed: the packet
+                // handler below can still be mid-Set() on another thread at the
+                // moment we unregister it, and Set() on a disposed handle would
+                // throw inside packet processing. It wraps a SafeWaitHandle, so
+                // its handle is released when it is collected.
+                // countdownEvent has no finalizer and so leaked a handle per
+                // cast; it is only ever touched under m_CastWaiters, which makes
+                // disposing it here safe.
                 ManualResetEvent waitOrFizzleEvent = new(false);
-                countdownEvent = new CountdownEvent(2);
+                using CountdownEvent countdownEvent = new(2);
 
                 void watchForFizzle(PacketReader p, PacketHandlerEventArgs args)
                 {
                     waitOrFizzleEvent.Set();
+                }
+                lock (m_CastWaiters)
+                {
+                    m_CastWaiters.Add(countdownEvent);
                 }
                 try
                 {
@@ -138,6 +161,11 @@ namespace RazorEnhanced
                 finally
                 {
                     PacketHandler.RemoveServerToClientViewer(0x54, watchForFizzle);
+                    // Out of the list before the using block disposes it.
+                    lock (m_CastWaiters)
+                    {
+                        m_CastWaiters.Remove(countdownEvent);
+                    }
                 }
             }
             return true;
