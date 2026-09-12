@@ -240,10 +240,17 @@ jobs:
             "",
             "Version ``$env:DEV_VERSION`` from branch ``${{ github.ref_name }}`` (``${{ github.sha }}``).",
             "",
-            "This build is NOT offered by the in-app updater. It has no update",
-            "manifest attached, so nobody on the normal download will ever be",
-            "moved onto it. To go back to the live build, download it from the",
-            "``latest`` release and install over the top."
+            "Install this zip once. After that the in-app update button pulls",
+            "the next dev build by itself - no more copying files by hand.",
+            "",
+            "Players on the normal download are NOT affected. Their copy reads",
+            "its update manifest from the ``latest`` release and never looks at",
+            "``dev``; only a binary built by this workflow points here.",
+            "",
+            "To go back to live, download the ``latest`` release and install over",
+            "the top. The updater will not do it for you, because dev versions",
+            "sort above live on purpose so a test build cannot be silently",
+            "rolled back mid-session."
           ) -join "`n"
 
           gh release create $tag `
