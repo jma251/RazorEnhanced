@@ -202,8 +202,8 @@ namespace RazorEnhanced
         /// Possible values:
         ///    ClientToServer
         ///    ServerToClient
-        ///    RazorToServer (TODO)
-        ///    RazorToClient (TODO)
+        ///    RazorToServer   packets Razor itself sends to the server
+        ///    RazorToClient   packets Razor itself sends to the client
         ///    PacketVideo   (TODO)
         /// </param>
         /// <returns>List of strings of currently active packet paths.</returns>

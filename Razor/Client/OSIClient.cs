@@ -833,12 +833,16 @@ namespace Assistant
         {
             byte[] data = p.Compile();
 
+            // Logged outside the mutex on purpose - nothing in the logger is
+            // worth holding the comm lock for, and an exception in it must not
+            // strand the mutex.
+            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToClient, data);
+
             try  // AbandonedMutexException
             {
                 CommMutex.WaitOne();
                 fixed (byte* ptr = data)
                 {
-                    //Packet.Log(PacketPath.RazorToClient, ptr, data.Length);
                     CopyToBuffer(m_OutRecv, ptr, data.Length);
                 }
             }
@@ -854,13 +858,14 @@ namespace Assistant
 
             byte[] data = p.Compile();
 
+            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToServer, data);
+
             try  // AbandonedMutexException
             {
                 CommMutex.WaitOne();
                 InitSendFlush();
                 fixed (byte* ptr = data)
                 {
-                    //Packet.Log(PacketPath.RazorToServer, ptr, data.Length);
                     CopyToBuffer(m_OutSend, ptr, data.Length);
                 }
             }

@@ -518,6 +518,7 @@ namespace Assistant
         {
             byte[] data = p.Compile();
             int length = (int)p.Length;
+            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToServer, data);
             _sendToServer(ref data, ref length);
         }
 
@@ -531,6 +532,7 @@ namespace Assistant
             byte[] data = p.Compile();
             int length = (int)p.Length;
 
+            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToClient, data);
             _sendToClient(ref data, ref length);
         }
 
@@ -539,6 +541,7 @@ namespace Assistant
             byte[] data = p.Compile();
             int length = (int)p.Length;
 
+            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToClient, data);
             _sendToClient(ref data, ref length);
         }
 
@@ -547,6 +550,7 @@ namespace Assistant
             byte[] data = p.Compile();
             int length = (int)p.Length;
 
+            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToServer, data);
             _sendToServer(ref data, ref length);
         }
 
