@@ -836,7 +836,7 @@ namespace Assistant
             // Logged outside the mutex on purpose - nothing in the logger is
             // worth holding the comm lock for, and an exception in it must not
             // strand the mutex.
-            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToClient, data);
+            LogRazorPacket(PacketPath.RazorToClient, data);
 
             try  // AbandonedMutexException
             {
@@ -858,7 +858,7 @@ namespace Assistant
 
             byte[] data = p.Compile();
 
-            PacketLogger.SharedInstance.LogPacketData(PacketPath.RazorToServer, data);
+            LogRazorPacket(PacketPath.RazorToServer, data);
 
             try  // AbandonedMutexException
             {

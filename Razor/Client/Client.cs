@@ -573,6 +573,25 @@ namespace Assistant
 
         public abstract bool OnMessage(MainForm razor, uint wParam, int lParam);
         public abstract bool OnCopyData(IntPtr wparam, IntPtr lparam);
+        /// <summary>
+        /// Record a packet Razor is sending itself, without ever being able to
+        /// stop it being sent.
+        ///
+        /// Every Razor-originated packet passes through the send paths that
+        /// call this, so a throw here would take out sending altogether. The
+        /// logger is a diagnostic; it does not get to break the client.
+        /// </summary>
+        protected static void LogRazorPacket(PacketPath path, byte[] data)
+        {
+            try
+            {
+                PacketLogger.SharedInstance.LogPacketData(path, data);
+            }
+            catch
+            {
+            }
+        }
+
         public abstract void SendToServer(Packet p);
         public abstract void SendToServer(PacketReader pr);
 
