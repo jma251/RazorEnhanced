@@ -102,6 +102,8 @@ namespace Assistant
         {
             get
             {
+                EnsureTimeoutsLoaded();
+
                 int timeout;
                 if (m_TimeoutByID.TryGetValue(GetID(), out timeout))
                     return timeout;
@@ -201,6 +203,35 @@ namespace Assistant
         /// numbers drive Player.IsCasting. If the file is missing or malformed
         /// the spells still work, they just report no cast time.
         /// </summary>
+        private static bool m_TimeoutsLoaded;
+        private static readonly object m_TimeoutLock = new();
+
+        /// <summary>
+        /// Loaded on first use rather than from the static constructor.
+        ///
+        /// Reading a file and reaching into RazorEnhanced.Config from a static
+        /// constructor means that work happens at whatever moment something
+        /// first touches Spell - which, when Razor is loaded as a client
+        /// plugin, can be during plugin initialisation, before the pieces it
+        /// depends on are ready. A static constructor that throws takes the
+        /// whole type with it and the failure surfaces somewhere unrelated.
+        /// Doing it lazily keeps it out of load time entirely.
+        /// </summary>
+        private static void EnsureTimeoutsLoaded()
+        {
+            if (m_TimeoutsLoaded)
+                return;
+
+            lock (m_TimeoutLock)
+            {
+                if (m_TimeoutsLoaded)
+                    return;
+
+                m_TimeoutsLoaded = true; // set first: a failure must not retry forever
+                LoadTimeouts();
+            }
+        }
+
         private static void LoadTimeouts()
         {
             try
@@ -277,8 +308,6 @@ namespace Assistant
                 {
                 }
             }
-
-            LoadTimeouts();
         }
 
 
