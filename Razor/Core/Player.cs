@@ -811,23 +811,6 @@ namespace Assistant
             get { return IsCasting ? m_CastingSpell : 0; }
         }
 
-        /// <summary>
-        /// Milliseconds left on the current cast, 0 when not casting.
-        /// </summary>
-        internal double CastingTimeLeft
-        {
-            get
-            {
-                if (m_CastingSpell == 0)
-                    return 0;
-
-                double left = (System.Threading.Interlocked.Read(ref m_CastingDeadline) - DateTime.UtcNow.Ticks)
-                              / (double)TimeSpan.TicksPerMillisecond;
-
-                return left > 0 ? left : 0;
-            }
-        }
-
         private DateTime m_LastMovement = DateTime.MinValue;
         private DateTime m_PreviousMovement = DateTime.MinValue;
         private bool m_LastMoveWasRunning;

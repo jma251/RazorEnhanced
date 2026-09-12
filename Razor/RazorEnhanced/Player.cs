@@ -3169,23 +3169,6 @@ namespace RazorEnhanced
         }
 
         /// <summary>
-        /// Milliseconds left before the current cast completes, or 0 when the
-        /// player is not casting. Use it to wait out a cast without sleeping
-        /// for a fixed time that may be too short or too long.
-        /// </summary>
-        public static double CastingTimeLeft
-        {
-            get
-            {
-                Assistant.PlayerData player = World.Player;
-                if (player == null)
-                    return 0;
-
-                return player.CastingTimeLeft;
-            }
-        }
-
-        /// <summary>
         /// How long a single step currently takes, in milliseconds: 400 walking
         /// on foot, 200 running on foot, 200 walking mounted, 100 running
         /// mounted. Read it when you need to pace a script to the character's
